@@ -1,0 +1,3 @@
+[submodule "Reticulum"]
+	path = Reticulum
+	url = github.com:markqvist/Reticulum

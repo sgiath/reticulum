@@ -14,11 +14,12 @@ defmodule Reticulum.MixProject do
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() != :test,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
 
       # Docs
       name: "reticulum",
-      source_url: "https://github.com/Sgiath/reticulum",
+      source_url: "https://github.com/sgiath/reticulum",
       homepage_url: "https://sgiath.dev/libraries#reticulum",
       description: """
       Elixir implementation of Reticulum protocol
@@ -34,15 +35,17 @@ defmodule Reticulum.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
+
   defp deps do
     [
       # Development
-      {:ex_check, "~> 0.15", only: [:dev], runtime: false, optional: true},
+      {:ex_check, "~> 0.16", only: [:dev], runtime: false, optional: true},
       {:credo, "~> 1.7", only: [:dev], runtime: false, optional: true},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false, optional: true},
-      {:ex_doc, "~> 0.31", only: [:dev], runtime: false, optional: true},
+      {:ex_doc, "~> 0.40", only: [:dev], runtime: false, optional: true},
       {:mix_audit, "~> 2.1", only: [:dev], runtime: false, optional: true},
-      {:mix_test_watch, "~> 1.1", only: [:dev], runtime: false, optional: true}
+      {:mix_test_watch, "~> 1.4", only: [:dev], runtime: false, optional: true}
     ]
   end
 
@@ -54,7 +57,7 @@ defmodule Reticulum.MixProject do
       licenses: ["WTFPL"],
       links: %{
         "Homepage" => "https://reticulum.network",
-        "GitHub" => "https://github.com/Sgiath/reticulum"
+        "GitHub" => "https://github.com/sgiath/reticulum"
       }
     ]
   end
@@ -70,7 +73,7 @@ defmodule Reticulum.MixProject do
       ],
       formatters: ["html"],
       source_ref: "v#{@version}",
-      source_url: "https://github.com/Sgiath/reticulum"
+      source_url: "https://github.com/sgiath/reticulum"
     ]
   end
 end
