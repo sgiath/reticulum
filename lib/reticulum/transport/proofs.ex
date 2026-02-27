@@ -5,6 +5,7 @@ defmodule Reticulum.Transport.Proofs do
 
   alias Reticulum.Identity
   alias Reticulum.Packet
+  alias Reticulum.Packet.Context
 
   @hash_len 32
   @truncated_hash_len 16
@@ -20,7 +21,7 @@ defmodule Reticulum.Transport.Proofs do
 
   def build_explicit_proof_packet(proved_packet_hash, %Identity{} = identity, opts \\ [])
       when is_binary(proved_packet_hash) and is_list(opts) do
-    context = Keyword.get(opts, :context, 0)
+    context = Keyword.get(opts, :context, Context.none())
     hops = Keyword.get(opts, :hops, 0)
 
     with :ok <- validate_hash(proved_packet_hash, :invalid_packet_hash, @hash_len),

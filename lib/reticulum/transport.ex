@@ -18,8 +18,10 @@ defmodule Reticulum.Transport do
   alias Reticulum.Node.State
   alias Reticulum.Observability
   alias Reticulum.Packet
+  alias Reticulum.Packet.Context
   alias Reticulum.PacketReceipt
   alias Reticulum.Transport.Announce
+  alias Reticulum.Transport.PacketCrypto
   alias Reticulum.Transport.Pathfinder
   alias Reticulum.Transport.Proofs
 
@@ -154,9 +156,10 @@ defmodule Reticulum.Transport do
         %{state_server: state_server} = state
       ) do
     with :ok <- validate_destination_hash(destination_hash),
-         {:ok, _destination_record} <- fetch_destination(state_server, destination_hash),
+         {:ok, destination_record} <- fetch_destination(state_server, destination_hash),
          {:ok, packet} <- build_data_packet(destination_hash, payload, opts),
-         {:ok, raw} <- encode_packet(packet),
+         {:ok, encrypted_packet} <- PacketCrypto.encrypt_outbound(packet, destination_record),
+         {:ok, raw} <- encode_packet(encrypted_packet),
          :ok <- send_on_interface(state.node_name, interface_name, raw, opts) do
       publish_outbound_packet(state, interface_name, raw)
 
@@ -393,21 +396,28 @@ defmodule Reticulum.Transport do
        when is_binary(destination_hash) do
     case State.local_destination(state_server, destination_hash) do
       {:ok, %{pid: pid} = local_destination} ->
-        event = %{
-          node: node_name,
-          destination_hash: destination_hash,
-          packet: packet,
-          packet_hash: packet_hash,
-          raw: raw,
-          interface: frame.interface,
-          endpoint: frame.endpoint,
-          at: frame.at
-        }
+        case PacketCrypto.decrypt_inbound(packet, local_destination) do
+          {:ok, decrypted_packet} ->
+            event = %{
+              node: node_name,
+              destination_hash: destination_hash,
+              packet: decrypted_packet,
+              packet_hash: packet_hash,
+              raw: raw,
+              interface: frame.interface,
+              endpoint: frame.endpoint,
+              at: frame.at
+            }
 
-        send(pid, {:reticulum, :destination_packet, event})
-        maybe_invoke_destination_callback(local_destination, event)
-        dispatch_message_hooks(state_server, destination_hash, packet, event)
-        maybe_send_explicit_proof(state, frame, local_destination, packet_hash_full)
+            send(pid, {:reticulum, :destination_packet, event})
+            maybe_invoke_destination_callback(local_destination, event)
+            dispatch_message_hooks(state_server, destination_hash, decrypted_packet, event)
+            maybe_send_explicit_proof(state, frame, local_destination, packet_hash_full)
+
+          {:error, reason} ->
+            publish_processing_error(state, frame, raw, packet, packet_hash, reason)
+            state
+        end
 
       :error ->
         state
@@ -425,16 +435,16 @@ defmodule Reticulum.Transport do
        do: state
 
   defp dispatch_message_hooks(state_server, destination_hash, packet, event) do
-    context = packet_context(packet.context)
+    with {:ok, context} <- Context.normalize(packet.context) do
+      case State.request_handler(state_server, destination_hash, context) do
+        {:ok, %{pid: pid}} -> send(pid, {:reticulum, :request, event})
+        _ -> :ok
+      end
 
-    case State.request_handler(state_server, destination_hash, context) do
-      {:ok, %{pid: pid}} -> send(pid, {:reticulum, :request, event})
-      _ -> :ok
-    end
-
-    case State.response_handler(state_server, destination_hash, context) do
-      {:ok, %{pid: pid}} -> send(pid, {:reticulum, :response, event})
-      _ -> :ok
+      case State.response_handler(state_server, destination_hash, context) do
+        {:ok, %{pid: pid}} -> send(pid, {:reticulum, :response, event})
+        _ -> :ok
+      end
     end
   end
 
@@ -611,18 +621,31 @@ defmodule Reticulum.Transport do
   end
 
   defp build_data_packet(destination_hash, payload, opts) do
-    packet = %Packet{
-      ifac: Keyword.get(opts, :ifac, :open),
-      propagation: Keyword.get(opts, :propagation, :broadcast),
-      destination: Keyword.get(opts, :destination, :single),
-      type: Keyword.get(opts, :type, :data),
-      hops: Keyword.get(opts, :hops, 0),
-      addresses: [destination_hash],
-      context: Keyword.get(opts, :context, 0),
-      data: payload
-    }
+    ifac = Keyword.get(opts, :ifac, :open)
+    propagation = Keyword.get(opts, :propagation, :broadcast)
+    destination = Keyword.get(opts, :destination, :single)
+    type = Keyword.get(opts, :type, :data)
+    hops = Keyword.get(opts, :hops, 0)
+    context = Keyword.get(opts, :context, Context.none())
 
-    {:ok, packet}
+    with :ok <- validate_ifac(ifac),
+         :ok <- validate_propagation(propagation),
+         :ok <- validate_packet_destination(destination),
+         :ok <- validate_packet_type(type),
+         :ok <- validate_hops(hops),
+         {:ok, context} <- Context.normalize(context) do
+      {:ok,
+       %Packet{
+         ifac: ifac,
+         propagation: propagation,
+         destination: destination,
+         type: type,
+         hops: hops,
+         addresses: [destination_hash],
+         context: context,
+         data: payload
+       }}
+    end
   end
 
   defp fetch_destination(state_server, destination_hash) do
@@ -711,6 +734,29 @@ defmodule Reticulum.Transport do
     })
   end
 
+  defp publish_processing_error(
+         %{state_server: state_server, node_name: node_name},
+         frame,
+         raw,
+         packet,
+         packet_hash,
+         reason
+       ) do
+    State.publish_packet(state_server, %{
+      interface: frame.interface,
+      packet: packet,
+      packet_hash: packet_hash,
+      duplicate: false,
+      endpoint: frame.endpoint,
+      node: node_name,
+      reason: reason,
+      raw: raw,
+      direction: :inbound,
+      known_destination: true,
+      at: frame.at
+    })
+  end
+
   defp known_destination?(
          state_server,
          %Packet{addresses: [destination_hash | _]}
@@ -735,9 +781,23 @@ defmodule Reticulum.Transport do
   defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_integer(_value, default), do: default
 
-  defp packet_context(context) when is_integer(context), do: context
-  defp packet_context(<<context>>), do: context
-  defp packet_context(_context), do: 0
+  defp validate_ifac(ifac) when ifac in [:open, :auth], do: :ok
+  defp validate_ifac(_ifac), do: {:error, :invalid_ifac}
+
+  defp validate_propagation(propagation) when propagation in [:broadcast, :transport], do: :ok
+  defp validate_propagation(_propagation), do: {:error, :invalid_propagation}
+
+  defp validate_packet_destination(destination)
+       when destination in [:single, :group, :plain, :link],
+       do: :ok
+
+  defp validate_packet_destination(_destination), do: {:error, :invalid_destination_type}
+
+  defp validate_packet_type(type) when type in [:data, :announce, :link_request, :proof], do: :ok
+  defp validate_packet_type(_type), do: {:error, :invalid_packet_type}
+
+  defp validate_hops(hops) when is_integer(hops) and hops >= 0 and hops <= 255, do: :ok
+  defp validate_hops(_hops), do: {:error, :invalid_hops}
 
   defp schedule_path_maintenance(interval_seconds) do
     Process.send_after(self(), :path_maintenance, interval_seconds * 1_000)

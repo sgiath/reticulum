@@ -1,6 +1,8 @@
 defmodule Reticulum.Interop.NetworkSessionTest do
   use ExUnit.Case, async: false
 
+  alias Reticulum.Destination
+  alias Reticulum.Identity
   alias Reticulum.Node
   alias Reticulum.Packet
   alias Reticulum.ReferenceRunner
@@ -55,7 +57,7 @@ defmodule Reticulum.Interop.NetworkSessionTest do
         "0",
         "0",
         "0",
-        "0",
+        "2",
         "0",
         "0",
         hex(destination_hash),
@@ -77,6 +79,47 @@ defmodule Reticulum.Interop.NetworkSessionTest do
     assert packet.type == :data
     assert packet.addresses == [destination_hash]
     assert packet.data == payload
+  end
+
+  test "decrypts Python-encrypted inbound single packet for local destination", %{
+    node_name: node_name
+  } do
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "interop", identity, ["secure"])
+    payload = "interop-encrypted"
+
+    assert :ok = Node.register_local_announce_destination(node_name, destination, self())
+
+    ciphertext =
+      ReferenceRunner.run!("identity_encrypt", [
+        hex(identity.enc_pub <> identity.sig_pub),
+        hex(payload),
+        "-"
+      ])
+      |> dehex()
+
+    raw =
+      ReferenceRunner.run!("packet_pack", [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        hex(destination.hash),
+        "0",
+        hex(ciphertext),
+        "-"
+      ])
+      |> dehex()
+
+    assert :ok = Node.send_frame(node_name, :udp_a, raw)
+
+    assert_receive {:reticulum, :destination_packet,
+                    %{destination_hash: destination_hash, packet: %Packet{data: ^payload}}},
+                   1_000
+
+    assert destination_hash == destination.hash
   end
 
   defp hex(data), do: Base.encode16(data, case: :lower)

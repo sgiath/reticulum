@@ -6,10 +6,10 @@ defmodule Reticulum.Transport.Pathfinder do
   alias Reticulum.Destination
   alias Reticulum.Node.State
   alias Reticulum.Packet
+  alias Reticulum.Packet.Context
   alias Reticulum.Transport.Announce
 
   @truncated_hash_len 16
-  @path_response_context 11
   @path_request_app "rnstransport"
   @path_request_aspects ["path", "request"]
 
@@ -48,7 +48,7 @@ defmodule Reticulum.Transport.Pathfinder do
          type: :data,
          hops: 0,
          addresses: [@path_request_hash],
-         context: 0,
+         context: Context.none(),
          data: data
        }}
     end
@@ -81,7 +81,7 @@ defmodule Reticulum.Transport.Pathfinder do
          hops: 0,
          addresses: [destination.hash],
          context_flag: announce.context_flag,
-         context: @path_response_context,
+         context: Context.path_response(),
          data: announce.payload
        }}
     end
@@ -119,8 +119,12 @@ defmodule Reticulum.Transport.Pathfinder do
 
   defp validate_request_packet(_packet), do: {:error, :not_path_request}
 
-  defp validate_context_none(context) when context in [0, <<0>>], do: :ok
-  defp validate_context_none(_context), do: {:error, :invalid_path_request_context}
+  defp validate_context_none(context) do
+    case Context.normalize(context) do
+      {:ok, value} when value == 0 -> :ok
+      _ -> {:error, :invalid_path_request_context}
+    end
+  end
 
   defp validate_path_request_address(@path_request_hash), do: :ok
   defp validate_path_request_address(_address), do: {:error, :invalid_path_request_destination}

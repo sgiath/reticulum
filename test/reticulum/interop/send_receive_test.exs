@@ -48,7 +48,7 @@ defmodule Reticulum.Interop.SendReceiveTest do
     assert :ok =
              Node.put_destination(node_name, destination_hash, :crypto.strong_rand_bytes(64), nil)
 
-    assert :ok = Node.send_data(node_name, :udp_a, destination_hash, payload)
+    assert :ok = Node.send_data(node_name, :udp_a, destination_hash, payload, destination: :plain)
 
     assert_receive {:reticulum, :packet, %{direction: :outbound, raw: raw}}, 1_000
 
@@ -60,7 +60,7 @@ defmodule Reticulum.Interop.SendReceiveTest do
 
     assert unpack_fields["success"] == "true"
     assert unpack_fields["packet_type"] == "0"
-    assert unpack_fields["destination_type"] == "0"
+    assert unpack_fields["destination_type"] == "2"
     assert unpack_fields["transport_type"] == "0"
     assert unpack_fields["destination_hash"] == hex(destination_hash)
     assert unpack_fields["data"] == hex(payload)

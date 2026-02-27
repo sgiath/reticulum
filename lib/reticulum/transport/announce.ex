@@ -7,6 +7,7 @@ defmodule Reticulum.Transport.Announce do
   alias Reticulum.Destination
   alias Reticulum.Identity
   alias Reticulum.Packet
+  alias Reticulum.Packet.Context
 
   @destination_hash_len 16
   @public_key_len 64
@@ -14,8 +15,6 @@ defmodule Reticulum.Transport.Announce do
   @random_hash_len 10
   @ratchet_len 32
   @signature_len 64
-  @path_response_context 11
-
   @type parsed :: %{
           destination_hash: binary(),
           public_key: binary(),
@@ -48,7 +47,7 @@ defmodule Reticulum.Transport.Announce do
          ratchet: fields.ratchet,
          signature: fields.signature,
          app_data: fields.app_data,
-         path_response: context_value(packet.context) == @path_response_context
+         path_response: context_value(packet.context) == Context.path_response()
        }}
     end
   end
@@ -190,7 +189,10 @@ defmodule Reticulum.Transport.Announce do
 
   defp validate_ratchet(_ratchet), do: {:error, :invalid_ratchet}
 
-  defp context_value(context) when is_integer(context), do: context
-  defp context_value(<<value>>), do: value
-  defp context_value(_context), do: 0
+  defp context_value(context) do
+    case Context.normalize(context) do
+      {:ok, value} -> value
+      _ -> -1
+    end
+  end
 end

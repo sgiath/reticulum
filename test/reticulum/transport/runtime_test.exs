@@ -2,6 +2,7 @@ defmodule Reticulum.Transport.RuntimeTest do
   use ExUnit.Case, async: false
 
   alias Reticulum.Destination
+  alias Reticulum.Identity
   alias Reticulum.Node
   alias Reticulum.Packet
 
@@ -48,7 +49,7 @@ defmodule Reticulum.Transport.RuntimeTest do
     payload = <<1, 2, 3, 4>>
 
     assert :ok = Node.put_destination(node_name, destination_hash, public_key, nil)
-    assert :ok = Node.send_data(node_name, :udp_a, destination_hash, payload)
+    assert :ok = Node.send_data(node_name, :udp_a, destination_hash, payload, destination: :plain)
 
     assert_receive {:reticulum, :packet,
                     %{direction: :outbound, packet: %Packet{data: ^payload}}},
@@ -77,7 +78,7 @@ defmodule Reticulum.Transport.RuntimeTest do
     packet = %Packet{
       ifac: :open,
       propagation: :broadcast,
-      destination: :single,
+      destination: :plain,
       type: :data,
       hops: 0,
       addresses: [destination_hash],
@@ -135,7 +136,7 @@ defmodule Reticulum.Transport.RuntimeTest do
 
     payload = "plain-delivery"
 
-    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, payload)
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, payload, destination: :plain)
 
     assert_receive {:reticulum, :destination_packet,
                     %{destination_hash: destination_hash, packet: %Packet{data: ^payload}}},
@@ -148,6 +149,76 @@ defmodule Reticulum.Transport.RuntimeTest do
     transport_pid_after = :global.whereis_name({Reticulum.Node, :transport, node_name})
     assert transport_pid_after == transport_pid_before
     assert Process.alive?(transport_pid_after)
+  end
+
+  test "encrypts outbound single payload and decrypts inbound local destination", %{
+    node_name: node_name
+  } do
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "runtime", identity, ["secure"])
+    payload = "runtime-encrypted"
+
+    assert :ok = Node.register_local_announce_destination(node_name, destination, self())
+
+    assert :ok =
+             Node.put_destination(
+               node_name,
+               destination.hash,
+               identity.enc_pub <> identity.sig_pub,
+               nil
+             )
+
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, payload)
+
+    assert_receive {:reticulum, :packet,
+                    %{direction: :outbound, packet: %Packet{data: outbound_payload}}},
+                   1_000
+
+    refute outbound_payload == payload
+
+    assert_receive {:reticulum, :destination_packet,
+                    %{destination_hash: destination_hash, packet: %Packet{data: ^payload}}},
+                   1_000
+
+    assert destination_hash == destination.hash
+  end
+
+  test "publishes inbound packet event when local destination decryption fails", %{
+    node_name: node_name
+  } do
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "runtime", identity, ["missing-private"])
+
+    destination_without_private = %{
+      destination
+      | identity: %{destination.identity | enc_sec: nil}
+    }
+
+    assert :ok =
+             Node.register_local_announce_destination(
+               node_name,
+               destination_without_private,
+               self()
+             )
+
+    assert :ok =
+             Node.put_destination(
+               node_name,
+               destination.hash,
+               identity.enc_pub <> identity.sig_pub,
+               nil
+             )
+
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, "cannot-decrypt")
+
+    destination_hash = destination.hash
+
+    assert_receive {:reticulum, :packet,
+                    %{direction: :inbound, reason: :missing_private_key, packet_hash: packet_hash}},
+                   1_000
+
+    assert is_binary(packet_hash)
+    refute_receive {:reticulum, :destination_packet, %{destination_hash: ^destination_hash}}, 250
   end
 
   defp receive_inbound_events(target_count, acc) when length(acc) >= target_count,

@@ -60,12 +60,22 @@ defmodule Reticulum.Messaging.ApiTest do
     assert :ok = Messaging.register_request_handler(node_name, destination_hash, 7, self())
     assert :ok = Messaging.register_response_handler(node_name, destination_hash, 9, self())
 
-    assert :ok = Messaging.send(node_name, destination_hash, "req", interface: :udp_a, context: 7)
+    assert :ok =
+             Messaging.send(node_name, destination_hash, "req",
+               interface: :udp_a,
+               context: 7,
+               destination: :plain
+             )
 
     assert_receive {:callback_invoked, ^destination_hash}, 1_000
     assert_receive {:reticulum, :request, %{destination_hash: ^destination_hash}}, 1_000
 
-    assert :ok = Messaging.send(node_name, destination_hash, "res", interface: :udp_a, context: 9)
+    assert :ok =
+             Messaging.send(node_name, destination_hash, "res",
+               interface: :udp_a,
+               context: 9,
+               destination: :plain
+             )
 
     assert_receive {:reticulum, :response, %{destination_hash: ^destination_hash}}, 1_000
   end
@@ -83,7 +93,7 @@ defmodule Reticulum.Messaging.ApiTest do
 
     assert {:ok, %{interface: :udp_a}} = Node.path(node_name, destination_hash)
 
-    assert :ok = Messaging.send(node_name, destination_hash, <<5, 6, 7>>)
+    assert :ok = Messaging.send(node_name, destination_hash, <<5, 6, 7>>, destination: :plain)
 
     assert_receive {:reticulum, :packet,
                     %{direction: :inbound, interface: :udp_b, packet: %Packet{data: <<5, 6, 7>>}}},
@@ -130,7 +140,7 @@ defmodule Reticulum.Messaging.ApiTest do
                interface: :missing_interface
              )
 
-    assert :ok = Messaging.send(node_name, destination_hash, payload)
+    assert :ok = Messaging.send(node_name, destination_hash, payload, destination: :plain)
 
     assert_receive {:reticulum, :packet,
                     %{direction: :inbound, interface: :udp_b, packet: %Packet{data: ^payload}}},

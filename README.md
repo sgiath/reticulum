@@ -95,6 +95,16 @@ case Node.receipt(Reticulum.Node.Example, receipt_hash) do
 end
 ```
 
+`Reticulum.Node.send_data/5` encrypts payloads for `destination: :single` when context is
+active data transport. To send unencrypted payloads, use `destination: :plain`.
+
+```elixir
+:ok =
+  Node.send_data(Reticulum.Node.Example, :udp, destination_hash, "plain-payload",
+    destination: :plain
+  )
+```
+
 ## Observability
 
 `Reticulum.Transport` emits runtime hooks through `Reticulum.Observability`:

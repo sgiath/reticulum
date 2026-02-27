@@ -21,6 +21,8 @@ Implemented in commit `e85fa91`.
 
 ## Phase 3 - Startup Lifecycle Contracts
 
+Implemented in commit `8c5e37c`.
+
 - [x] Add startup mode contract for cold start vs warm restore hooks.
 - [x] Add integration tests for startup mode behavior.
 - [x] Update `config/reticulum.example.toml` + README config section for startup mode options.
