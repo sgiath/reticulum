@@ -69,6 +69,11 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - `cold` runs cold-start lifecycle hooks.
 - `warm_restore` runs warm-restore lifecycle hooks.
 
+`[node]` also supports `use_implicit_proof = true | false`.
+
+- `true` sends implicit proofs (signature only, reference-aligned default).
+- `false` sends explicit proofs (packet hash + signature).
+
 For imperative startup, pass `startup_lifecycle: YourModule` to
 `Reticulum.Node.start_link/1`. Lifecycle modules implement the
 `Reticulum.Node.StartupLifecycle` callbacks.
@@ -94,6 +99,13 @@ case Node.receipt(Reticulum.Node.Example, receipt_hash) do
   :error -> :not_found
 end
 ```
+
+Inbound destinations only return proofs when `destination.proof_strategy` is set to
+`:all` or `:app`.
+
+- `:none` (default) never sends a proof
+- `:all` always sends a proof
+- `:app` calls `proof_requested_callback.(event)` and sends a proof only on `true`
 
 `Reticulum.Node.send_data/5` encrypts payloads for `destination: :single` when context is
 active data transport. To send unencrypted payloads, use `destination: :plain`.

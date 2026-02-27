@@ -9,6 +9,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       [node]
       storage_path = "#{Path.join(System.tmp_dir!(), "reticulum-bootstrap-parser")}" 
       transport_enabled = true
+      use_implicit_proof = false
       startup_mode = "warm_restore"
 
       [interfaces.link]
@@ -19,6 +20,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
 
     assert {:ok, bootstrap} = TOML.parse_file(config_path)
     assert bootstrap.node_opts[:transport_enabled] == true
+    assert bootstrap.node_opts[:use_implicit_proof] == false
     assert bootstrap.node_opts[:startup_mode] == :warm_restore
     assert [%{name: :link, type: :udp}] = bootstrap.interfaces
   end

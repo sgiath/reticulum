@@ -11,6 +11,7 @@ defmodule Reticulum.Bootstrap.ConfigTest do
         "node" => %{
           "storage_path" => storage_path,
           "transport_enabled" => true,
+          "use_implicit_proof" => false,
           "shared_instance" => false,
           "startup_mode" => "warm_restore",
           "path_ttl_seconds" => 120,
@@ -38,6 +39,7 @@ defmodule Reticulum.Bootstrap.ConfigTest do
 
       assert bootstrap.node_opts[:storage_path] == Path.expand(storage_path)
       assert bootstrap.node_opts[:transport_enabled] == true
+      assert bootstrap.node_opts[:use_implicit_proof] == false
       assert bootstrap.node_opts[:startup_mode] == :warm_restore
       assert bootstrap.node_opts[:startup_lifecycle] == Reticulum.Node.StartupLifecycle.Default
       assert bootstrap.node_opts[:path_ttl_seconds] == 120

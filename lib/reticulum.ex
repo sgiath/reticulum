@@ -21,7 +21,7 @@ defmodule Reticulum do
   - `Reticulum.Transport` - packet ingress/egress and duplicate filtering
   - `Reticulum.Transport.Announce` - announce payload validation and assembly
   - `Reticulum.Transport.Pathfinder` - path request/response and path maintenance
-  - `Reticulum.Transport.Proofs` - explicit proof generation and validation
+  - `Reticulum.Transport.Proofs` - proof generation and validation
   - `Reticulum.Messaging` - high-level send/announce and request/response hooks
   - `Reticulum.Observability` - telemetry/logging runtime event hooks
 

@@ -50,13 +50,19 @@ defmodule Reticulum.Destination.CallbacksTest do
   test "registers announce destination callback", %{node_name: node_name} do
     identity = Identity.new()
     {:ok, destination} = Destination.new(:in, :single, "callbacks", identity, ["announce"])
+    {:ok, destination} = Destination.set_proof_strategy(destination, :app)
 
     parent = self()
     callback = fn event -> send(parent, {:announce_callback, event.destination_hash}) end
 
+    proof_requested_callback = fn event ->
+      send(parent, {:proof_requested, event.destination_hash})
+    end
+
     assert :ok =
              Callbacks.register(node_name, destination, callback,
                pid: self(),
+               proof_requested_callback: proof_requested_callback,
                app_data: "announce-app-data"
              )
 
@@ -70,9 +76,13 @@ defmodule Reticulum.Destination.CallbacksTest do
     assert registration.pid == self()
     assert registration.destination.hash == destination.hash
     assert registration.app_data == "announce-app-data"
+    assert registration.proof_requested_callback == proof_requested_callback
 
     registration.callback.(%{destination_hash: destination_hash})
     assert_receive {:announce_callback, ^destination_hash}, 1_000
+
+    registration.proof_requested_callback.(%{destination_hash: destination_hash})
+    assert_receive {:proof_requested, ^destination_hash}, 1_000
   end
 
   test "default node register and unregister wrappers work" do

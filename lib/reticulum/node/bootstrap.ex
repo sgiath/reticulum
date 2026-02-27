@@ -10,6 +10,7 @@ defmodule Reticulum.Node.Bootstrap do
     :name,
     :storage_path,
     :transport_enabled,
+    :use_implicit_proof,
     :shared_instance,
     :startup_mode,
     :startup_lifecycle,

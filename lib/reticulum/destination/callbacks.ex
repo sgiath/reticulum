@@ -19,9 +19,11 @@ defmodule Reticulum.Destination.Callbacks do
              is_list(opts) do
     pid = Keyword.get(opts, :pid, self())
     app_data = Keyword.get(opts, :app_data)
+    proof_requested_callback = Keyword.get(opts, :proof_requested_callback)
 
     Node.register_local_destination(node_name, destination_hash, pid,
       callback: callback,
+      proof_requested_callback: proof_requested_callback,
       app_data: app_data
     )
   end
@@ -30,9 +32,11 @@ defmodule Reticulum.Destination.Callbacks do
       when is_atom(node_name) and is_function(callback, 1) and is_list(opts) do
     pid = Keyword.get(opts, :pid, self())
     app_data = Keyword.get(opts, :app_data)
+    proof_requested_callback = Keyword.get(opts, :proof_requested_callback)
 
     Node.register_local_announce_destination(node_name, destination, pid,
       callback: callback,
+      proof_requested_callback: proof_requested_callback,
       app_data: app_data
     )
   end

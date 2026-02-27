@@ -29,15 +29,17 @@ Implemented in commit `8c5e37c`.
 
 ## Phase 4 - Packet Crypto Baseline
 
-- [ ] Encrypt outbound payloads for supported destination types.
-- [ ] Decrypt/validate inbound payloads for local destinations.
-- [ ] Expand active packet-context handling to full supported set.
+Implemented in commit `1c998b0`.
+
+- [x] Encrypt outbound payloads for supported destination types.
+- [x] Decrypt/validate inbound payloads for local destinations.
+- [x] Expand active packet-context handling to full supported set.
 
 ## Phase 5 - Proof and Receipt Semantics
 
-- [ ] Implement implicit proof strategy behavior.
-- [ ] Unify explicit + implicit proof parsing/validation through one receipt state machine.
-- [ ] Add reference-vector coverage for proof edge cases.
+- [x] Implement implicit proof strategy behavior.
+- [x] Unify explicit + implicit proof parsing/validation through one receipt state machine.
+- [x] Add reference-vector coverage for proof edge cases.
 
 ## Phase 6 - Advanced Destination Crypto
 

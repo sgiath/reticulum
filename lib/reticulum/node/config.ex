@@ -16,6 +16,7 @@ defmodule Reticulum.Node.Config do
           name: atom(),
           storage_path: String.t(),
           transport_enabled: boolean(),
+          use_implicit_proof: boolean(),
           shared_instance: boolean(),
           startup_mode: :cold | :warm_restore,
           startup_lifecycle: module(),
@@ -29,6 +30,7 @@ defmodule Reticulum.Node.Config do
     :name,
     :storage_path,
     :transport_enabled,
+    :use_implicit_proof,
     :shared_instance,
     :startup_mode,
     :startup_lifecycle,
@@ -41,6 +43,7 @@ defmodule Reticulum.Node.Config do
     :name,
     :storage_path,
     :transport_enabled,
+    :use_implicit_proof,
     :shared_instance,
     :startup_mode,
     :startup_lifecycle,
@@ -60,6 +63,8 @@ defmodule Reticulum.Node.Config do
            validate_storage_path(Keyword.get(opts, :storage_path, @default_storage_path)),
          {:ok, transport_enabled} <-
            validate_boolean(Keyword.get(opts, :transport_enabled, false), :transport_enabled),
+         {:ok, use_implicit_proof} <-
+           validate_boolean(Keyword.get(opts, :use_implicit_proof, true), :use_implicit_proof),
          {:ok, shared_instance} <-
            validate_boolean(Keyword.get(opts, :shared_instance, false), :shared_instance),
          {:ok, startup_mode} <- validate_startup_mode(Keyword.get(opts, :startup_mode, :cold)),
@@ -89,6 +94,7 @@ defmodule Reticulum.Node.Config do
          name: name,
          storage_path: storage_path,
          transport_enabled: transport_enabled,
+         use_implicit_proof: use_implicit_proof,
          shared_instance: shared_instance,
          startup_mode: startup_mode,
          startup_lifecycle: startup_lifecycle,
@@ -111,6 +117,7 @@ defmodule Reticulum.Node.Config do
             :name,
             :storage_path,
             :transport_enabled,
+            :use_implicit_proof,
             :shared_instance,
             :startup_mode,
             :startup_lifecycle,
@@ -138,6 +145,7 @@ defmodule Reticulum.Node.Config do
 
   defp validate_boolean(value, _field) when is_boolean(value), do: {:ok, value}
   defp validate_boolean(_value, :transport_enabled), do: {:error, :invalid_transport_enabled}
+  defp validate_boolean(_value, :use_implicit_proof), do: {:error, :invalid_use_implicit_proof}
   defp validate_boolean(_value, :shared_instance), do: {:error, :invalid_shared_instance}
 
   defp validate_startup_mode(:cold), do: {:ok, :cold}

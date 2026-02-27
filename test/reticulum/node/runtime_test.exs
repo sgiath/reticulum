@@ -13,6 +13,7 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.name == Reticulum.Node
       assert is_binary(config.storage_path)
       assert config.transport_enabled == false
+      assert config.use_implicit_proof == true
       assert config.shared_instance == false
       assert config.startup_mode == :cold
       assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
@@ -41,6 +42,7 @@ defmodule Reticulum.Node.RuntimeTest do
            name: node_name,
            storage_path: storage_path,
            transport_enabled: true,
+           use_implicit_proof: false,
            shared_instance: true,
            startup_mode: :warm_restore,
            startup_lifecycle: Reticulum.Node.StartupLifecycle.Default,
@@ -56,6 +58,7 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.name == node_name
       assert config.storage_path == Path.expand(storage_path)
       assert config.transport_enabled == true
+      assert config.use_implicit_proof == false
       assert config.shared_instance == true
       assert config.startup_mode == :warm_restore
       assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
@@ -69,6 +72,7 @@ defmodule Reticulum.Node.RuntimeTest do
       assert Node.start_link(storage_path: 1) == {:error, :invalid_storage_path}
       assert Node.start_link(name: "reticulum") == {:error, :invalid_node_name}
       assert Node.start_link(transport_enabled: :yes) == {:error, :invalid_transport_enabled}
+      assert Node.start_link(use_implicit_proof: :yes) == {:error, :invalid_use_implicit_proof}
       assert Node.start_link(shared_instance: :yes) == {:error, :invalid_shared_instance}
       assert Node.start_link(startup_mode: :warm) == {:error, :invalid_startup_mode}
 

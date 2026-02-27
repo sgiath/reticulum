@@ -70,6 +70,7 @@ defmodule Reticulum.Node.State do
           pid: pid(),
           destination: Destination.t() | nil,
           callback: (map() -> term()) | nil,
+          proof_requested_callback: (map() -> boolean()) | nil,
           app_data: binary() | nil,
           updated_at: integer()
         }
@@ -599,9 +600,11 @@ defmodule Reticulum.Node.State do
        do: {:error, :invalid_local_destination_options}
 
   defp register_local_destination_entry(state, destination_hash, pid, opts) do
-    with {:ok, destination, callback, app_data} <- parse_local_destination_opts(opts),
+    with {:ok, destination, callback, proof_requested_callback, app_data} <-
+           parse_local_destination_opts(opts),
          :ok <- validate_registered_destination_hash(destination_hash),
          :ok <- validate_destination_handler(pid),
+         :ok <- validate_destination_proof_strategy(destination),
          :ok <- validate_destination_binding(destination_hash, destination) do
       insert_local_destination_entry(
         state,
@@ -609,6 +612,7 @@ defmodule Reticulum.Node.State do
         pid,
         destination,
         callback,
+        proof_requested_callback,
         app_data
       )
     else
@@ -617,32 +621,60 @@ defmodule Reticulum.Node.State do
   end
 
   defp parse_local_destination_opts(opts) do
+    destination = Keyword.get(opts, :destination)
+    callback = Keyword.get(opts, :callback)
+    proof_requested_callback = Keyword.get(opts, :proof_requested_callback)
+    app_data = Keyword.get(opts, :app_data)
+
+    with :ok <- validate_local_destination_opt_keys(opts),
+         :ok <- validate_local_destination_option(:destination, destination),
+         :ok <- validate_local_destination_option(:callback, callback),
+         :ok <-
+           validate_local_destination_option(:proof_requested_callback, proof_requested_callback),
+         :ok <- validate_local_destination_option(:app_data, app_data) do
+      {:ok, destination, callback, proof_requested_callback, app_data}
+    end
+  end
+
+  defp validate_local_destination_opt_keys(opts) do
     unknown_opts =
       opts
       |> Keyword.keys()
-      |> Enum.reject(&(&1 in [:destination, :callback, :app_data]))
+      |> Enum.reject(&(&1 in [:destination, :callback, :proof_requested_callback, :app_data]))
 
-    destination = Keyword.get(opts, :destination)
-    callback = Keyword.get(opts, :callback)
-    app_data = Keyword.get(opts, :app_data)
-
-    cond do
-      unknown_opts != [] ->
-        {:error, :unknown_local_destination_option}
-
-      not is_nil(destination) and not match?(%Destination{}, destination) ->
-        {:error, :invalid_destination}
-
-      not is_nil(callback) and not is_function(callback, 1) ->
-        {:error, :invalid_destination_callback}
-
-      not is_nil(app_data) and not is_binary(app_data) ->
-        {:error, :invalid_app_data}
-
-      true ->
-        {:ok, destination, callback, app_data}
+    case unknown_opts do
+      [] -> :ok
+      _ -> {:error, :unknown_local_destination_option}
     end
   end
+
+  defp validate_local_destination_option(:destination, nil), do: :ok
+
+  defp validate_local_destination_option(:destination, %Destination{}), do: :ok
+
+  defp validate_local_destination_option(:destination, _destination),
+    do: {:error, :invalid_destination}
+
+  defp validate_local_destination_option(:callback, nil), do: :ok
+
+  defp validate_local_destination_option(:callback, callback) when is_function(callback, 1),
+    do: :ok
+
+  defp validate_local_destination_option(:callback, _callback),
+    do: {:error, :invalid_destination_callback}
+
+  defp validate_local_destination_option(:proof_requested_callback, nil), do: :ok
+
+  defp validate_local_destination_option(:proof_requested_callback, callback)
+       when is_function(callback, 1),
+       do: :ok
+
+  defp validate_local_destination_option(:proof_requested_callback, _callback),
+    do: {:error, :invalid_proof_requested_callback}
+
+  defp validate_local_destination_option(:app_data, nil), do: :ok
+  defp validate_local_destination_option(:app_data, app_data) when is_binary(app_data), do: :ok
+  defp validate_local_destination_option(:app_data, _app_data), do: {:error, :invalid_app_data}
 
   defp validate_registered_destination_hash(destination_hash)
        when is_binary(destination_hash) and byte_size(destination_hash) == @truncated_hash_len,
@@ -671,12 +703,23 @@ defmodule Reticulum.Node.State do
     end
   end
 
+  defp validate_destination_proof_strategy(nil), do: :ok
+
+  defp validate_destination_proof_strategy(%Destination{proof_strategy: proof_strategy}) do
+    if Destination.valid_proof_strategy?(proof_strategy) do
+      :ok
+    else
+      {:error, :invalid_proof_strategy}
+    end
+  end
+
   defp insert_local_destination_entry(
          state,
          destination_hash,
          pid,
          destination,
          callback,
+         proof_requested_callback,
          app_data
        ) do
     true =
@@ -688,6 +731,7 @@ defmodule Reticulum.Node.State do
             pid: pid,
             destination: destination,
             callback: callback,
+            proof_requested_callback: proof_requested_callback,
             app_data: app_data,
             updated_at: System.system_time(:second)
           }

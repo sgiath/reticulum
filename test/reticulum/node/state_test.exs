@@ -204,6 +204,11 @@ defmodule Reticulum.Node.StateTest do
                callback: :bad
              )
 
+    assert {:error, :invalid_proof_requested_callback} =
+             State.register_local_destination(state_server, destination_hash, self(),
+               proof_requested_callback: :bad
+             )
+
     assert {:error, :invalid_app_data} =
              State.register_local_destination(state_server, destination_hash, self(),
                app_data: 123
@@ -238,6 +243,8 @@ defmodule Reticulum.Node.StateTest do
     assert {:ok, local_destination} = State.local_destination(state_server, destination.hash)
     assert local_destination.pid == self()
     assert local_destination.destination.hash == destination.hash
+    assert is_function(local_destination.callback, 1)
+    assert local_destination.proof_requested_callback == nil
 
     assert :ok = State.unregister_local_destination(state_server, destination.hash)
 

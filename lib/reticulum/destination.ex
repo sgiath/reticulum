@@ -26,12 +26,15 @@ defmodule Reticulum.Destination do
   @destination_hash_len 16
   @types [:single, :group, :plain, :link]
   @directions [:in, :out]
+  @proof_strategies [:none, :app, :all]
+
+  @type proof_strategy :: :none | :app | :all
 
   @typedoc "Reticulum destination"
   @type t :: %__MODULE__{
           type: :single | :group | :plain | :link | nil,
           direction: :in | :out | nil,
-          proof_strategy: atom(),
+          proof_strategy: proof_strategy(),
           mtu: non_neg_integer(),
           links: list(),
           identity: Identity.t() | nil,
@@ -113,6 +116,21 @@ defmodule Reticulum.Destination do
        |> Enum.join(".")
        |> Crypto.sha256()
        |> binary_part(0, @name_hash_len)}
+    end
+  end
+
+  @doc "Returns supported destination proof strategies."
+  def proof_strategies, do: @proof_strategies
+
+  @doc "Returns true when `proof_strategy` is valid."
+  def valid_proof_strategy?(proof_strategy), do: proof_strategy in @proof_strategies
+
+  @doc "Sets destination proof strategy."
+  def set_proof_strategy(%__MODULE__{} = destination, proof_strategy) do
+    if valid_proof_strategy?(proof_strategy) do
+      {:ok, %{destination | proof_strategy: proof_strategy}}
+    else
+      {:error, :invalid_proof_strategy}
     end
   end
 

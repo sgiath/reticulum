@@ -3,6 +3,7 @@
 [node]
 storage_path = "~/.reticulum"
 transport_enabled = true
+use_implicit_proof = true
 shared_instance = false
 # startup_mode: "cold" | "warm_restore"
 # warm_restore currently runs restore hooks while ETS runtime tables stay ephemeral.

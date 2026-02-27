@@ -18,6 +18,7 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       [node]
       storage_path = "#{storage_path}"
       transport_enabled = true
+      use_implicit_proof = false
       shared_instance = false
       startup_mode = "cold"
       path_ttl_seconds = 120
@@ -37,6 +38,7 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert {:ok, config} = Node.config(node_name)
     assert config.storage_path == Path.expand(storage_path)
     assert config.transport_enabled == true
+    assert config.use_implicit_proof == false
     assert config.startup_mode == :cold
     assert config.path_ttl_seconds == 120
     assert config.path_gc_interval_seconds == 2

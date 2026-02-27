@@ -14,6 +14,7 @@ defmodule Reticulum.Transport do
   use GenServer
 
   alias Reticulum.Crypto
+  alias Reticulum.Destination
   alias Reticulum.Interface.Supervisor, as: InterfaceSupervisor
   alias Reticulum.Node.State
   alias Reticulum.Observability
@@ -36,6 +37,7 @@ defmodule Reticulum.Transport do
           node_name: atom(),
           state_server: GenServer.server(),
           transport_enabled: boolean(),
+          use_implicit_proof: boolean(),
           pending_path_requests: %{binary() => integer()},
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
@@ -96,6 +98,7 @@ defmodule Reticulum.Transport do
     state_server = Keyword.fetch!(opts, :state_server)
     config = Keyword.get(opts, :config, %{})
     transport_enabled = Map.get(config, :transport_enabled, false) == true
+    use_implicit_proof = Map.get(config, :use_implicit_proof, true) == true
 
     path_ttl_seconds =
       normalize_positive_integer(
@@ -129,6 +132,7 @@ defmodule Reticulum.Transport do
        node_name: node_name,
        state_server: state_server,
        transport_enabled: transport_enabled,
+       use_implicit_proof: use_implicit_proof,
        pending_path_requests: %{},
        path_ttl_seconds: path_ttl_seconds,
        path_gc_interval_seconds: path_gc_interval_seconds,
@@ -343,22 +347,23 @@ defmodule Reticulum.Transport do
          proof_packet_hash,
          _packet_hash_full
        ) do
-    with {:ok, proof} <- Proofs.parse_explicit_proof_packet(packet),
-         %{receipt: receipt} = entry <- Map.get(state.packet_receipts, proof.proved_packet_hash),
-         {:ok, destination} <- State.destination(state_server, receipt.destination_hash),
-         :ok <- Proofs.validate_explicit_proof(proof, destination.public_key) do
-      delivered_receipt = PacketReceipt.delivered(receipt, proof_packet_hash)
-      emit_receipt_delivery(state.node_name, delivered_receipt)
-      invoke_delivery_callback(entry.on_delivery, delivered_receipt)
+    case resolve_receipt_proof(state.packet_receipts, packet, state_server) do
+      {:ok, receipt_hash, %{receipt: receipt} = entry} ->
+        delivered_receipt = PacketReceipt.delivered(receipt, proof_packet_hash)
+        emit_receipt_delivery(state.node_name, delivered_receipt)
+        invoke_delivery_callback(entry.on_delivery, delivered_receipt)
 
-      packet_receipts =
-        Map.put(state.packet_receipts, proof.proved_packet_hash, %{
-          entry
-          | receipt: delivered_receipt
-        })
+        packet_receipts =
+          Map.put(state.packet_receipts, receipt_hash, %{
+            entry
+            | receipt: delivered_receipt
+          })
 
-      %{state | packet_receipts: packet_receipts}
-    else
+        %{state | packet_receipts: packet_receipts}
+
+      :no_match ->
+        state
+
       {:error, reason} ->
         Observability.emit(
           [:transport, :proof, :invalid],
@@ -367,9 +372,6 @@ defmodule Reticulum.Transport do
           log_level: :debug
         )
 
-        state
-
-      _ ->
         state
     end
   end
@@ -412,7 +414,7 @@ defmodule Reticulum.Transport do
             send(pid, {:reticulum, :destination_packet, event})
             maybe_invoke_destination_callback(local_destination, event)
             dispatch_message_hooks(state_server, destination_hash, decrypted_packet, event)
-            maybe_send_explicit_proof(state, frame, local_destination, packet_hash_full)
+            maybe_send_proof(state, frame, local_destination, event, packet_hash_full)
 
           {:error, reason} ->
             publish_processing_error(state, frame, raw, packet, packet_hash, reason)
@@ -458,13 +460,13 @@ defmodule Reticulum.Transport do
 
   defp maybe_invoke_destination_callback(_local_destination, _event), do: :ok
 
-  defp maybe_send_explicit_proof(
-         state,
-         frame,
-         %{destination: %{identity: %Reticulum.Identity{} = identity}},
-         packet_hash_full
-       ) do
-    with {:ok, proof_packet} <- Proofs.build_explicit_proof_packet(packet_hash_full, identity),
+  defp maybe_send_proof(state, frame, local_destination, event, packet_hash_full) do
+    with true <- proof_requested?(local_destination, event),
+         {:ok, identity} <- proving_identity(local_destination),
+         {:ok, proof_packet} <-
+           Proofs.build_proof_packet(packet_hash_full, identity,
+             implicit: state.use_implicit_proof
+           ),
          {:ok, raw} <- encode_packet(proof_packet),
          :ok <- send_path_response(state, frame, raw) do
       publish_outbound_packet(state, frame.interface, raw)
@@ -478,11 +480,124 @@ defmodule Reticulum.Transport do
 
       state
     else
-      _ -> state
+      _reason -> state
     end
   end
 
-  defp maybe_send_explicit_proof(state, _frame, _local_destination, _packet_hash_full), do: state
+  defp resolve_receipt_proof(packet_receipts, packet, state_server) do
+    with {:ok, proof} <- Proofs.parse_proof_packet(packet) do
+      packet_receipts
+      |> receipt_candidate_hashes(proof)
+      |> match_receipt_candidate(packet_receipts, proof, state_server)
+    end
+  end
+
+  defp receipt_candidate_hashes(packet_receipts, %{
+         mode: :explicit,
+         proved_packet_hash: packet_hash
+       })
+       when is_binary(packet_hash) do
+    case Map.has_key?(packet_receipts, packet_hash) do
+      true -> [packet_hash]
+      false -> []
+    end
+  end
+
+  defp receipt_candidate_hashes(packet_receipts, %{mode: :implicit, proof_destination_hash: hash})
+       when is_binary(hash) and byte_size(hash) == @truncated_hash_len do
+    packet_receipts
+    |> Enum.reduce([], fn {packet_hash, _entry}, acc ->
+      if is_binary(packet_hash) and byte_size(packet_hash) >= @truncated_hash_len and
+           binary_part(packet_hash, 0, @truncated_hash_len) == hash do
+        [packet_hash | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp receipt_candidate_hashes(_packet_receipts, _proof), do: []
+
+  defp match_receipt_candidate([], _packet_receipts, _proof, _state_server), do: :no_match
+
+  defp match_receipt_candidate(candidate_hashes, packet_receipts, proof, state_server) do
+    candidate_hashes
+    |> Enum.reduce_while(%{attempted?: false, last_error: nil}, fn candidate_hash, acc ->
+      reduce_receipt_candidate(candidate_hash, packet_receipts, proof, state_server, acc)
+    end)
+    |> case do
+      {:ok, _candidate_hash, _entry} = success ->
+        success
+
+      %{attempted?: true, last_error: reason} when not is_nil(reason) ->
+        {:error, reason}
+
+      _ ->
+        :no_match
+    end
+  end
+
+  defp reduce_receipt_candidate(candidate_hash, packet_receipts, proof, state_server, acc) do
+    with %{receipt: receipt} = entry <- Map.get(packet_receipts, candidate_hash),
+         validation <- validate_receipt_candidate(proof, receipt, state_server) do
+      receipt_candidate_result(validation, candidate_hash, entry, acc)
+    else
+      _ -> {:cont, acc}
+    end
+  end
+
+  defp receipt_candidate_result(:ok, candidate_hash, entry, _acc),
+    do: {:halt, {:ok, candidate_hash, entry}}
+
+  defp receipt_candidate_result(:skip, _candidate_hash, _entry, acc), do: {:cont, acc}
+
+  defp receipt_candidate_result({:error, reason}, _candidate_hash, _entry, _acc),
+    do: {:cont, %{attempted?: true, last_error: reason}}
+
+  defp validate_receipt_candidate(_proof, %PacketReceipt{status: status}, _state_server)
+       when status != :sent,
+       do: :skip
+
+  defp validate_receipt_candidate(
+         proof,
+         %PacketReceipt{packet_hash: packet_hash, destination_hash: destination_hash},
+         state_server
+       ) do
+    with {:ok, destination} <- State.destination(state_server, destination_hash),
+         :ok <- Proofs.validate_proof(proof, destination.public_key, packet_hash) do
+      :ok
+    else
+      :error -> {:error, :unknown_destination_for_receipt}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp proof_requested?(%{destination: %Destination{proof_strategy: :all}}, _event), do: true
+  defp proof_requested?(%{destination: %Destination{proof_strategy: :none}}, _event), do: false
+
+  defp proof_requested?(
+         %{destination: %Destination{proof_strategy: :app}, proof_requested_callback: callback},
+         event
+       )
+       when is_function(callback, 1) do
+    callback.(event) == true
+  rescue
+    _ -> false
+  end
+
+  defp proof_requested?(%{destination: %Destination{}}, _event), do: false
+  defp proof_requested?(_local_destination, _event), do: false
+
+  defp proving_identity(%{destination: %Destination{identity: %Reticulum.Identity{} = identity}}) do
+    if is_binary(identity.sig_sec) do
+      {:ok, identity}
+    else
+      {:error, :missing_proof_signing_identity}
+    end
+  end
+
+  defp proving_identity(_local_destination), do: {:error, :missing_proof_signing_identity}
 
   defp maybe_track_receipt(
          %{receipt_timeout_seconds: default_timeout, packet_receipts: packet_receipts} = state,

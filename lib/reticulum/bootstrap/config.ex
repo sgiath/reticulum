@@ -8,6 +8,7 @@ defmodule Reticulum.Bootstrap.Config do
   @node_option_keys [
     "storage_path",
     "transport_enabled",
+    "use_implicit_proof",
     "shared_instance",
     "startup_mode",
     "path_ttl_seconds",
@@ -19,6 +20,7 @@ defmodule Reticulum.Bootstrap.Config do
   @node_option_key_map %{
     "storage_path" => :storage_path,
     "transport_enabled" => :transport_enabled,
+    "use_implicit_proof" => :use_implicit_proof,
     "shared_instance" => :shared_instance,
     "startup_mode" => :startup_mode,
     "path_ttl_seconds" => :path_ttl_seconds,
@@ -31,6 +33,7 @@ defmodule Reticulum.Bootstrap.Config do
     :name,
     :storage_path,
     :transport_enabled,
+    :use_implicit_proof,
     :shared_instance,
     :startup_mode,
     :startup_lifecycle,
