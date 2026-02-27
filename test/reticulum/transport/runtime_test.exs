@@ -165,7 +165,9 @@ defmodule Reticulum.Transport.RuntimeTest do
                node_name,
                destination.hash,
                identity.enc_pub <> identity.sig_pub,
-               nil
+               nil,
+               ratchet: nil,
+               ratchet_received_at: nil
              )
 
     assert :ok = Node.send_data(node_name, :udp_a, destination.hash, payload)
@@ -181,6 +183,88 @@ defmodule Reticulum.Transport.RuntimeTest do
                    1_000
 
     assert destination_hash == destination.hash
+  end
+
+  test "encrypts outbound group payload and decrypts inbound local destination", %{
+    node_name: node_name
+  } do
+    {:ok, destination} = Destination.new(:in, :group, "runtime", nil, ["group"])
+    {:ok, destination} = Destination.create_group_key(destination)
+    {:ok, group_key} = Destination.group_key(destination)
+    payload = "runtime-group-encrypted"
+
+    assert :ok = Node.register_local_announce_destination(node_name, destination, self())
+    assert :ok = Node.put_group_destination(node_name, destination.hash, group_key, nil)
+
+    assert :ok =
+             Node.send_data(node_name, :udp_a, destination.hash, payload, destination: :group)
+
+    assert_receive {:reticulum, :packet,
+                    %{direction: :outbound, packet: %Packet{data: outbound_payload}}},
+                   1_000
+
+    refute outbound_payload == payload
+
+    assert_receive {:reticulum, :destination_packet,
+                    %{destination_hash: destination_hash, packet: %Packet{data: ^payload}}},
+                   1_000
+
+    assert destination_hash == destination.hash
+  end
+
+  test "enforces ratchet-only inbound decryption for local single destination", %{
+    node_name: node_name
+  } do
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "runtime", identity, ["ratchet-enforced"])
+    ratchet_private = :crypto.strong_rand_bytes(32)
+    {:ok, destination} = Destination.set_ratchets(destination, [ratchet_private])
+    {:ok, destination} = Destination.enforce_ratchets(destination, true)
+    {:ok, ratchet_public} = Destination.current_ratchet_public_key(destination)
+
+    assert :ok = Node.register_local_announce_destination(node_name, destination, self())
+
+    assert :ok =
+             Node.put_destination(
+               node_name,
+               destination.hash,
+               identity.enc_pub <> identity.sig_pub,
+               nil,
+               ratchet: ratchet_public
+             )
+
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, "ratchet-pass")
+
+    assert_receive {:reticulum, :destination_packet,
+                    %{destination_hash: destination_hash, packet: %Packet{data: "ratchet-pass"}}},
+                   1_000
+
+    assert destination_hash == destination.hash
+
+    assert :ok =
+             Node.put_destination(
+               node_name,
+               destination.hash,
+               identity.enc_pub <> identity.sig_pub,
+               nil,
+               ratchet: nil,
+               ratchet_received_at: nil
+             )
+
+    assert {:ok, destination_record} = Node.destination(node_name, destination.hash)
+    assert destination_record.ratchet == nil
+
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, "ratchet-fail")
+
+    assert_receive {:reticulum, :packet,
+                    %{direction: :inbound, reason: :ratchet_enforced, packet_hash: packet_hash}},
+                   1_000
+
+    assert is_binary(packet_hash)
+
+    refute_receive {:reticulum, :destination_packet,
+                    %{destination_hash: ^destination_hash, packet: %Packet{data: "ratchet-fail"}}},
+                   250
   end
 
   test "publishes inbound packet event when local destination decryption fails", %{

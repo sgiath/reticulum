@@ -17,7 +17,8 @@ defmodule Reticulum.Bootstrap.ConfigTest do
           "path_ttl_seconds" => 120,
           "path_gc_interval_seconds" => 2,
           "receipt_timeout_seconds" => 8,
-          "receipt_retention_seconds" => 20
+          "receipt_retention_seconds" => 20,
+          "ratchet_expiry_seconds" => 900
         },
         "interfaces" => %{
           "link" => %{
@@ -46,6 +47,7 @@ defmodule Reticulum.Bootstrap.ConfigTest do
       assert bootstrap.node_opts[:path_gc_interval_seconds] == 2
       assert bootstrap.node_opts[:receipt_timeout_seconds] == 8
       assert bootstrap.node_opts[:receipt_retention_seconds] == 20
+      assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
 
       assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
       assert opts[:listen_ip] == {127, 0, 0, 1}

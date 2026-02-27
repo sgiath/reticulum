@@ -23,7 +23,8 @@ defmodule Reticulum.Node.Config do
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
           receipt_timeout_seconds: pos_integer(),
-          receipt_retention_seconds: pos_integer()
+          receipt_retention_seconds: pos_integer(),
+          ratchet_expiry_seconds: pos_integer()
         }
 
   @enforce_keys [
@@ -37,7 +38,8 @@ defmodule Reticulum.Node.Config do
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
-    :receipt_retention_seconds
+    :receipt_retention_seconds,
+    :ratchet_expiry_seconds
   ]
   defstruct [
     :name,
@@ -50,7 +52,8 @@ defmodule Reticulum.Node.Config do
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
-    :receipt_retention_seconds
+    :receipt_retention_seconds,
+    :ratchet_expiry_seconds
   ]
 
   @doc "Builds and validates a node config from keyword options."
@@ -88,6 +91,11 @@ defmodule Reticulum.Node.Config do
            validate_positive_integer(
              Keyword.get(opts, :receipt_retention_seconds, 60),
              :receipt_retention_seconds
+           ),
+         {:ok, ratchet_expiry_seconds} <-
+           validate_positive_integer(
+             Keyword.get(opts, :ratchet_expiry_seconds, 2_592_000),
+             :ratchet_expiry_seconds
            ) do
       {:ok,
        %__MODULE__{
@@ -101,7 +109,8 @@ defmodule Reticulum.Node.Config do
          path_ttl_seconds: path_ttl_seconds,
          path_gc_interval_seconds: path_gc_interval_seconds,
          receipt_timeout_seconds: receipt_timeout_seconds,
-         receipt_retention_seconds: receipt_retention_seconds
+         receipt_retention_seconds: receipt_retention_seconds,
+         ratchet_expiry_seconds: ratchet_expiry_seconds
        }}
     end
   end
@@ -124,7 +133,8 @@ defmodule Reticulum.Node.Config do
             :path_ttl_seconds,
             :path_gc_interval_seconds,
             :receipt_timeout_seconds,
-            :receipt_retention_seconds
+            :receipt_retention_seconds,
+            :ratchet_expiry_seconds
           ])
       )
 
@@ -179,4 +189,7 @@ defmodule Reticulum.Node.Config do
 
   defp validate_positive_integer(_value, :receipt_retention_seconds),
     do: {:error, :invalid_receipt_retention_seconds}
+
+  defp validate_positive_integer(_value, :ratchet_expiry_seconds),
+    do: {:error, :invalid_ratchet_expiry_seconds}
 end

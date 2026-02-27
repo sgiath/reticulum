@@ -37,6 +37,8 @@ Implemented in commit `1c998b0`.
 
 ## Phase 5 - Proof and Receipt Semantics
 
+Implemented in commit `a407dea`.
+
 - [x] Implement implicit proof strategy behavior.
 - [x] Unify explicit + implicit proof parsing/validation through one receipt state machine.
 - [x] Add reference-vector coverage for proof edge cases.
@@ -45,6 +47,7 @@ Implemented in commit `1c998b0`.
 
 - [ ] Implement group destination crypto flow (`:group`) and validation paths.
 - [ ] Add destination ratchet lifecycle (ingest, persist policy, key selection, expiry).
+- [ ] Keep Phase 6 ratchet persistence memory-only; wire disk persistence when general runtime persistence lands.
 - [ ] Add reference-vector coverage for encrypted data edge cases.
 
 ## Phase 7 - IFAC Auth End-to-End

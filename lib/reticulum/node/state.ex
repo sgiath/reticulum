@@ -6,10 +6,15 @@ defmodule Reticulum.Node.State do
   alias Reticulum.Destination
 
   @truncated_hash_len 16
+  @group_key_lengths [32, 64]
+  @ratchet_len 32
 
   @typedoc "Known destination record"
   @type destination_record :: %{
-          public_key: binary(),
+          public_key: binary() | nil,
+          group_key: binary() | nil,
+          ratchet: binary() | nil,
+          ratchet_received_at: integer() | nil,
           app_data: binary() | nil,
           updated_at: integer()
         }
@@ -100,12 +105,17 @@ defmodule Reticulum.Node.State do
   def tables(server), do: GenServer.call(server, :tables)
   def table(server, table_key), do: GenServer.call(server, {:table, table_key})
 
-  def put_destination(server, destination_hash, public_key, app_data \\ nil) do
-    GenServer.call(server, {:put_destination, destination_hash, public_key, app_data})
+  def put_destination(server, destination_hash, public_key, app_data \\ nil, opts \\ []) do
+    GenServer.call(server, {:put_destination, destination_hash, public_key, app_data, opts})
   end
 
   def destination(server, destination_hash),
     do: GenServer.call(server, {:destination, destination_hash})
+
+  def expire_destination_ratchets(server, ttl_seconds, now_seconds \\ System.system_time(:second))
+      when is_integer(ttl_seconds) and ttl_seconds > 0 and is_integer(now_seconds) do
+    GenServer.call(server, {:expire_destination_ratchets, ttl_seconds, now_seconds})
+  end
 
   def put_path(server, destination_hash, next_hop, hops, opts \\ []) do
     GenServer.call(server, {:put_path, destination_hash, next_hop, hops, opts})
@@ -252,30 +262,43 @@ defmodule Reticulum.Node.State do
     {:reply, reply, state}
   end
 
-  def handle_call({:put_destination, destination_hash, public_key, app_data}, _from, state) do
+  def handle_call({:put_destination, destination_hash, public_key, app_data, opts}, _from, state) do
+    existing_entry = current_destination_entry(state.tables.destinations, destination_hash)
+
     reply =
-      cond do
-        not is_binary(destination_hash) ->
-          {:error, :invalid_destination_hash}
-
-        not is_binary(public_key) ->
-          {:error, :invalid_public_key}
-
-        not is_nil(app_data) and not is_binary(app_data) ->
-          {:error, :invalid_app_data}
-
-        true ->
-          entry = %{
-            public_key: public_key,
-            app_data: app_data,
-            updated_at: System.system_time(:second)
-          }
-
+      case build_destination_entry(destination_hash, public_key, app_data, opts, existing_entry) do
+        {:ok, entry} ->
           true = :ets.insert(state.tables.destinations, {destination_hash, entry})
           :ok
+
+        {:error, reason} ->
+          {:error, reason}
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:expire_destination_ratchets, ttl_seconds, now_seconds}, _from, state) do
+    expired_hashes =
+      state.tables.destinations
+      |> :ets.tab2list()
+      |> Enum.reduce([], fn {destination_hash, entry}, acc ->
+        if ratchet_expired?(entry, ttl_seconds, now_seconds) do
+          updated_entry =
+            entry
+            |> Map.put(:ratchet, nil)
+            |> Map.put(:ratchet_received_at, nil)
+            |> Map.put(:updated_at, now_seconds)
+
+          true = :ets.insert(state.tables.destinations, {destination_hash, updated_entry})
+          [destination_hash | acc]
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
+
+    {:reply, expired_hashes, state}
   end
 
   def handle_call({:destination, destination_hash}, _from, state) do
@@ -605,6 +628,7 @@ defmodule Reticulum.Node.State do
          :ok <- validate_registered_destination_hash(destination_hash),
          :ok <- validate_destination_handler(pid),
          :ok <- validate_destination_proof_strategy(destination),
+         :ok <- validate_destination_crypto_material(destination),
          :ok <- validate_destination_binding(destination_hash, destination) do
       insert_local_destination_entry(
         state,
@@ -713,6 +737,37 @@ defmodule Reticulum.Node.State do
     end
   end
 
+  defp validate_destination_crypto_material(nil), do: :ok
+
+  defp validate_destination_crypto_material(%Destination{type: :group, group_key: group_key}) do
+    if is_binary(group_key) and byte_size(group_key) in @group_key_lengths do
+      :ok
+    else
+      {:error, :missing_group_key}
+    end
+  end
+
+  defp validate_destination_crypto_material(%Destination{
+         type: :single,
+         ratchets: ratchets,
+         ratchet_enforced: ratchet_enforced
+       })
+       when is_list(ratchets) do
+    if is_boolean(ratchet_enforced) and
+         Enum.all?(ratchets, fn ratchet ->
+           is_binary(ratchet) and byte_size(ratchet) == @ratchet_len
+         end) do
+      :ok
+    else
+      {:error, :invalid_ratchet}
+    end
+  end
+
+  defp validate_destination_crypto_material(%Destination{type: :single, ratchets: _ratchets}),
+    do: {:error, :invalid_ratchet}
+
+  defp validate_destination_crypto_material(%Destination{}), do: :ok
+
   defp insert_local_destination_entry(
          state,
          destination_hash,
@@ -784,6 +839,148 @@ defmodule Reticulum.Node.State do
         [{^key, entry}] -> {:ok, entry}
         [] -> :error
       end
+    end
+  end
+
+  defp valid_destination_public_key?(nil), do: true
+  defp valid_destination_public_key?(public_key), do: is_binary(public_key)
+
+  defp valid_destination_opts?(opts) when is_list(opts) do
+    unknown_opts =
+      opts
+      |> Keyword.keys()
+      |> Enum.reject(&(&1 in [:group_key, :ratchet, :ratchet_received_at]))
+
+    group_key = Keyword.get(opts, :group_key)
+    ratchet = Keyword.get(opts, :ratchet)
+    ratchet_received_at = Keyword.get(opts, :ratchet_received_at)
+
+    unknown_opts == [] and valid_group_key_opt?(group_key) and valid_ratchet_opt?(ratchet) and
+      valid_ratchet_received_at_opt?(ratchet_received_at)
+  end
+
+  defp valid_destination_opts?(_opts), do: false
+
+  defp build_destination_entry(destination_hash, public_key, app_data, opts, existing_entry) do
+    resolved_public_key = resolve_public_key(public_key, existing_entry)
+    resolved_group_key = resolve_group_key(opts, existing_entry)
+    resolved_ratchet = resolve_ratchet(opts, existing_entry)
+
+    with :ok <- validate_destination_hash_arg(destination_hash),
+         :ok <- validate_destination_public_key_arg(public_key),
+         :ok <- validate_destination_app_data_arg(app_data),
+         :ok <- validate_destination_opts_arg(opts),
+         :ok <- validate_destination_key_presence(resolved_public_key, resolved_group_key) do
+      {:ok,
+       %{
+         public_key: resolved_public_key,
+         group_key: resolved_group_key,
+         ratchet: resolved_ratchet,
+         ratchet_received_at:
+           normalize_ratchet_received_at(opts, existing_entry, resolved_ratchet),
+         app_data: app_data,
+         updated_at: System.system_time(:second)
+       }}
+    end
+  end
+
+  defp validate_destination_hash_arg(destination_hash) when is_binary(destination_hash), do: :ok
+  defp validate_destination_hash_arg(_destination_hash), do: {:error, :invalid_destination_hash}
+
+  defp validate_destination_public_key_arg(public_key) do
+    if valid_destination_public_key?(public_key) do
+      :ok
+    else
+      {:error, :invalid_public_key}
+    end
+  end
+
+  defp validate_destination_app_data_arg(app_data) when is_nil(app_data) or is_binary(app_data),
+    do: :ok
+
+  defp validate_destination_app_data_arg(_app_data), do: {:error, :invalid_app_data}
+
+  defp validate_destination_opts_arg(opts) do
+    if valid_destination_opts?(opts) do
+      :ok
+    else
+      {:error, :invalid_destination_options}
+    end
+  end
+
+  defp validate_destination_key_presence(public_key, group_key) do
+    if is_nil(public_key) and is_nil(group_key) do
+      {:error, :missing_destination_key}
+    else
+      :ok
+    end
+  end
+
+  defp normalize_ratchet_received_at(opts, existing_entry, ratchet) do
+    has_ratchet_opt = Keyword.has_key?(opts, :ratchet)
+    ratchet_received_at = Keyword.get(opts, :ratchet_received_at)
+
+    if has_ratchet_opt do
+      if is_binary(ratchet) and is_nil(ratchet_received_at) do
+        System.system_time(:second)
+      else
+        ratchet_received_at
+      end
+    else
+      Map.get(existing_entry, :ratchet_received_at)
+    end
+  end
+
+  defp current_destination_entry(table, destination_hash) when is_binary(destination_hash) do
+    case :ets.lookup(table, destination_hash) do
+      [{^destination_hash, entry}] when is_map(entry) -> entry
+      _ -> %{}
+    end
+  end
+
+  defp current_destination_entry(_table, _destination_hash), do: %{}
+
+  defp resolve_public_key(nil, existing_entry), do: Map.get(existing_entry, :public_key)
+  defp resolve_public_key(public_key, _existing_entry), do: public_key
+
+  defp resolve_group_key(opts, existing_entry) do
+    if Keyword.has_key?(opts, :group_key) do
+      Keyword.get(opts, :group_key)
+    else
+      Map.get(existing_entry, :group_key)
+    end
+  end
+
+  defp resolve_ratchet(opts, existing_entry) do
+    if Keyword.has_key?(opts, :ratchet) do
+      Keyword.get(opts, :ratchet)
+    else
+      Map.get(existing_entry, :ratchet)
+    end
+  end
+
+  defp valid_group_key_opt?(nil), do: true
+
+  defp valid_group_key_opt?(group_key),
+    do: is_binary(group_key) and byte_size(group_key) in @group_key_lengths
+
+  defp valid_ratchet_opt?(nil), do: true
+  defp valid_ratchet_opt?(<<>>), do: true
+  defp valid_ratchet_opt?(ratchet), do: is_binary(ratchet) and byte_size(ratchet) == @ratchet_len
+
+  defp valid_ratchet_received_at_opt?(nil), do: true
+
+  defp valid_ratchet_received_at_opt?(received_at),
+    do: is_integer(received_at) and received_at >= 0
+
+  defp ratchet_expired?(entry, ttl_seconds, now_seconds) do
+    case entry do
+      %{ratchet: ratchet, ratchet_received_at: received_at}
+      when is_binary(ratchet) and is_integer(received_at) and byte_size(ratchet) == @ratchet_len ->
+        now_seconds - received_at > ttl_seconds
+
+      _ ->
+        false
     end
   end
 

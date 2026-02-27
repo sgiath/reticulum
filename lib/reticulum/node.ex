@@ -79,15 +79,44 @@ defmodule Reticulum.Node do
   end
 
   @doc "Stores/updates a known destination on the default node."
-  def put_destination(destination_hash, public_key, app_data \\ nil),
-    do: put_destination(@default_name, destination_hash, public_key, app_data)
+  def put_destination(destination_hash, public_key) when is_binary(destination_hash),
+    do: put_destination(@default_name, destination_hash, public_key, nil, [])
+
+  @doc "Stores/updates a known destination on the default node."
+  def put_destination(destination_hash, public_key, app_data) when is_binary(destination_hash),
+    do: put_destination(@default_name, destination_hash, public_key, app_data, [])
+
+  def put_destination(node_name, destination_hash, public_key)
+      when is_atom(node_name) and is_binary(destination_hash),
+      do: put_destination(node_name, destination_hash, public_key, nil, [])
+
+  @doc "Stores/updates a known destination on the default node."
+  def put_destination(destination_hash, public_key, app_data, opts)
+      when is_binary(destination_hash) and is_list(opts),
+      do: put_destination(@default_name, destination_hash, public_key, app_data, opts)
+
+  def put_destination(node_name, destination_hash, public_key, app_data)
+      when is_atom(node_name) and is_binary(destination_hash),
+      do: put_destination(node_name, destination_hash, public_key, app_data, [])
 
   @doc "Stores/updates a known destination on `node_name`."
-  def put_destination(node_name, destination_hash, public_key, app_data)
-      when is_atom(node_name) do
+  def put_destination(node_name, destination_hash, public_key, app_data, opts)
+      when is_atom(node_name) and is_binary(destination_hash) and is_list(opts) do
     node_name
     |> state_server()
-    |> State.put_destination(destination_hash, public_key, app_data)
+    |> State.put_destination(destination_hash, public_key, app_data, opts)
+  end
+
+  @doc "Stores/updates a known group destination on the default node."
+  def put_group_destination(destination_hash, group_key, app_data \\ nil)
+      when is_binary(destination_hash) and is_binary(group_key) do
+    put_group_destination(@default_name, destination_hash, group_key, app_data)
+  end
+
+  @doc "Stores/updates a known group destination on `node_name`."
+  def put_group_destination(node_name, destination_hash, group_key, app_data)
+      when is_atom(node_name) and is_binary(destination_hash) and is_binary(group_key) do
+    put_destination(node_name, destination_hash, nil, app_data, group_key: group_key)
   end
 
   @doc "Fetches known destination record from the default node."

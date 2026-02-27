@@ -24,6 +24,9 @@ defmodule Reticulum.Destination do
 
   @name_hash_len 10
   @destination_hash_len 16
+  @group_key_lengths [32, 64]
+  @default_group_key_len 64
+  @ratchet_private_len 32
   @types [:single, :group, :plain, :link]
   @directions [:in, :out]
   @proof_strategies [:none, :app, :all]
@@ -35,6 +38,9 @@ defmodule Reticulum.Destination do
           type: :single | :group | :plain | :link | nil,
           direction: :in | :out | nil,
           proof_strategy: proof_strategy(),
+          group_key: binary() | nil,
+          ratchets: [binary()],
+          ratchet_enforced: boolean(),
           mtu: non_neg_integer(),
           links: list(),
           identity: Identity.t() | nil,
@@ -46,6 +52,9 @@ defmodule Reticulum.Destination do
   defstruct type: nil,
             direction: nil,
             proof_strategy: :none,
+            group_key: nil,
+            ratchets: [],
+            ratchet_enforced: false,
             mtu: 0,
             links: [],
             identity: nil,
@@ -134,6 +143,82 @@ defmodule Reticulum.Destination do
     end
   end
 
+  @doc "Generates and stores a group key on a `:group` destination."
+  def create_group_key(%__MODULE__{type: :group} = destination) do
+    {:ok, %{destination | group_key: :crypto.strong_rand_bytes(@default_group_key_len)}}
+  end
+
+  def create_group_key(%__MODULE__{}), do: {:error, :not_group_destination}
+
+  @doc "Loads a group key on a `:group` destination."
+  def load_group_key(%__MODULE__{type: :group} = destination, key)
+      when is_binary(key) and byte_size(key) in @group_key_lengths do
+    {:ok, %{destination | group_key: key}}
+  end
+
+  def load_group_key(%__MODULE__{type: :group}, _key), do: {:error, :invalid_group_key}
+  def load_group_key(%__MODULE__{}, _key), do: {:error, :not_group_destination}
+
+  @doc "Fetches group key from a `:group` destination."
+  def group_key(%__MODULE__{type: :group, group_key: key}) when is_binary(key), do: {:ok, key}
+  def group_key(%__MODULE__{type: :group}), do: {:error, :missing_group_key}
+  def group_key(%__MODULE__{}), do: {:error, :not_group_destination}
+
+  @doc "Replaces ratchet private keys for a `:single` destination."
+  def set_ratchets(%__MODULE__{type: :single} = destination, ratchets) when is_list(ratchets) do
+    if Enum.all?(ratchets, &valid_ratchet_private?/1) do
+      {:ok, %{destination | ratchets: ratchets}}
+    else
+      {:error, :invalid_ratchet}
+    end
+  end
+
+  def set_ratchets(%__MODULE__{type: :single}, _ratchets), do: {:error, :invalid_ratchets}
+  def set_ratchets(%__MODULE__{}, _ratchets), do: {:error, :ratchets_only_supported_for_single}
+
+  @doc "Prepends one ratchet private key for a `:single` destination."
+  def add_ratchet(%__MODULE__{type: :single} = destination, ratchet)
+      when is_binary(ratchet) and byte_size(ratchet) == @ratchet_private_len do
+    ratchets = [ratchet | Enum.reject(destination.ratchets, &(&1 == ratchet))]
+    {:ok, %{destination | ratchets: ratchets}}
+  end
+
+  def add_ratchet(%__MODULE__{type: :single}, _ratchet), do: {:error, :invalid_ratchet}
+  def add_ratchet(%__MODULE__{}, _ratchet), do: {:error, :ratchets_only_supported_for_single}
+
+  @doc "Enables/disables ratchet-only decryption enforcement for `:single` destinations."
+  def enforce_ratchets(%__MODULE__{type: :single} = destination, enabled)
+      when is_boolean(enabled) do
+    {:ok, %{destination | ratchet_enforced: enabled}}
+  end
+
+  def enforce_ratchets(%__MODULE__{type: :single}, _enabled), do: {:error, :invalid_enforcement}
+  def enforce_ratchets(%__MODULE__{}, _enabled), do: {:error, :ratchets_only_supported_for_single}
+
+  @doc "Returns ratchet enforcement status."
+  def ratchet_enforced?(%__MODULE__{} = destination), do: destination.ratchet_enforced == true
+
+  @doc "Returns current ratchet public key for `:single` destination, if available."
+  def current_ratchet_public_key(%__MODULE__{type: :single, ratchets: [ratchet | _]}) do
+    ratchet_public_key(ratchet)
+  end
+
+  def current_ratchet_public_key(%__MODULE__{type: :single}), do: :error
+  def current_ratchet_public_key(%__MODULE__{}), do: {:error, :ratchets_only_supported_for_single}
+
+  @doc "Derives ratchet public key from a ratchet private key."
+  def ratchet_public_key(ratchet)
+      when is_binary(ratchet) and byte_size(ratchet) == @ratchet_private_len do
+    try do
+      {public_key, _private_key} = :crypto.generate_key(:eddh, :x25519, ratchet)
+      {:ok, public_key}
+    rescue
+      _ -> {:error, :invalid_ratchet}
+    end
+  end
+
+  def ratchet_public_key(_ratchet), do: {:error, :invalid_ratchet}
+
   defp add_identity(%__MODULE__{type: :plain, identity: nil} = dest), do: {:ok, dest}
 
   defp add_identity(%__MODULE__{type: :plain}), do: {:error, :plain_destination_with_identity}
@@ -205,4 +290,7 @@ defmodule Reticulum.Destination do
         :ok
     end
   end
+
+  defp valid_ratchet_private?(ratchet),
+    do: is_binary(ratchet) and byte_size(ratchet) == @ratchet_private_len
 end

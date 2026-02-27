@@ -17,7 +17,8 @@ defmodule Reticulum.Node.Bootstrap do
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
-    :receipt_retention_seconds
+    :receipt_retention_seconds,
+    :ratchet_expiry_seconds
   ]
 
   @doc "Loads, validates, and maps TOML bootstrap config with node option overrides."

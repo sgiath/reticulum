@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "Reticulum"))
 
 import RNS  # noqa: E402
-from RNS.Cryptography import Token, X25519PrivateKey  # noqa: E402
+from RNS.Cryptography import Token, X25519PrivateKey, X25519PublicKey  # noqa: E402
 
 
 def _from_hex(value):
@@ -114,22 +114,32 @@ def identity_validate_cmd(args):
 
 
 def identity_encrypt_cmd(args):
-    if len(args) != 3:
-        raise ValueError("identity_encrypt expects 3 arguments")
+    if len(args) not in (3, 4):
+        raise ValueError("identity_encrypt expects 3 or 4 arguments")
 
     public_key = bytes.fromhex(args[0])
     plaintext = bytes.fromhex(args[1])
     ephemeral_private_key = _from_hex(args[2])
+    ratchet_public_key = _from_hex(args[3]) if len(args) == 4 else None
 
     identity = RNS.Identity(create_keys=False)
     identity.load_public_key(public_key)
 
     if ephemeral_private_key is None:
-        ciphertext = identity.encrypt(plaintext)
+        if ratchet_public_key is None:
+            ciphertext = identity.encrypt(plaintext)
+        else:
+            ciphertext = identity.encrypt(plaintext, ratchet=ratchet_public_key)
     else:
         ephemeral = X25519PrivateKey.from_private_bytes(ephemeral_private_key)
         ephemeral_pub_bytes = ephemeral.public_key().public_bytes()
-        shared_key = ephemeral.exchange(identity.pub)
+
+        if ratchet_public_key is None:
+            target_public_key = identity.pub
+        else:
+            target_public_key = X25519PublicKey.from_public_bytes(ratchet_public_key)
+
+        shared_key = ephemeral.exchange(target_public_key)
         derived_key = RNS.Cryptography.hkdf(
             length=RNS.Identity.DERIVED_KEY_LENGTH,
             derive_from=shared_key,
@@ -143,14 +153,31 @@ def identity_encrypt_cmd(args):
 
 
 def identity_decrypt_cmd(args):
-    if len(args) != 2:
-        raise ValueError("identity_decrypt expects 2 arguments")
+    if len(args) not in (2, 4):
+        raise ValueError("identity_decrypt expects 2 or 4 arguments")
 
     private_key = bytes.fromhex(args[0])
     ciphertext = bytes.fromhex(args[1])
     identity = RNS.Identity(create_keys=False)
     identity.load_private_key(private_key)
-    plaintext = identity.decrypt(ciphertext)
+
+    ratchets = None
+    enforce_ratchets = False
+
+    if len(args) == 4:
+        ratchets_arg = args[2]
+        enforce_ratchets = args[3] == "1"
+
+        if ratchets_arg not in ("", "-"):
+            ratchets = [
+                bytes.fromhex(item) for item in ratchets_arg.split(",") if item != ""
+            ]
+
+    plaintext = identity.decrypt(
+        ciphertext,
+        ratchets=ratchets,
+        enforce_ratchets=enforce_ratchets,
+    )
 
     if plaintext is None:
         print("none")

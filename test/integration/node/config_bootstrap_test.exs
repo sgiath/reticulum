@@ -25,6 +25,7 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       path_gc_interval_seconds = 2
       receipt_timeout_seconds = 8
       receipt_retention_seconds = 20
+      ratchet_expiry_seconds = 900
 
       [interfaces.link]
       type = "udp"
@@ -44,6 +45,7 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert config.path_gc_interval_seconds == 2
     assert config.receipt_timeout_seconds == 8
     assert config.receipt_retention_seconds == 20
+    assert config.ratchet_expiry_seconds == 900
 
     assert {:ok, [interface]} = Node.interfaces(node_name)
     assert interface.name == :link

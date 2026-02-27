@@ -79,6 +79,24 @@ defmodule Reticulum.Transport.PathDiscoveryTest do
       assert byte_size(path.next_hop) == 16
     end
 
+    test "ingests ratchet from announce payload", %{node_a: node_a, node_b: node_b} do
+      identity = Identity.new()
+      {:ok, destination} = Destination.new(:in, :single, "phase6", identity, ["ratchet"])
+      {:ok, destination} = Destination.set_ratchets(destination, [:crypto.strong_rand_bytes(32)])
+
+      assert :ok = Node.register_local_announce_destination(node_b, destination, self())
+      assert {:ok, _request_tag} = Node.request_path(node_a, :link, destination.hash)
+
+      assert_receive {:reticulum, :packet,
+                      %{node: ^node_a, direction: :inbound, packet: %Packet{type: :announce}}},
+                     1_000
+
+      assert {:ok, record} = wait_for_destination(node_a, destination.hash)
+      assert is_binary(record.ratchet)
+      assert byte_size(record.ratchet) == 32
+      assert is_integer(record.ratchet_received_at)
+    end
+
     test "rejects invalid announce payloads", %{node_a: node_a, node_b: node_b} do
       destination_hash = :crypto.strong_rand_bytes(16)
       forged_public_key = :crypto.strong_rand_bytes(64)

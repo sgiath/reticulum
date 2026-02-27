@@ -11,6 +11,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       transport_enabled = true
       use_implicit_proof = false
       startup_mode = "warm_restore"
+      ratchet_expiry_seconds = 900
 
       [interfaces.link]
       type = "udp"
@@ -22,6 +23,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
     assert bootstrap.node_opts[:transport_enabled] == true
     assert bootstrap.node_opts[:use_implicit_proof] == false
     assert bootstrap.node_opts[:startup_mode] == :warm_restore
+    assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
     assert [%{name: :link, type: :udp}] = bootstrap.interfaces
   end
 

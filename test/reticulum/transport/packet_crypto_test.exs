@@ -87,11 +87,66 @@ defmodule Reticulum.Transport.PacketCryptoTest do
              PacketCrypto.decrypt_inbound(packet, local_destination)
   end
 
-  test "rejects unsupported destination type" do
+  test "encrypts and decrypts group destination payloads" do
+    {:ok, destination} = Destination.new(:in, :group, "phase6", nil, ["group"])
+    {:ok, destination} = Destination.create_group_key(destination)
+    {:ok, group_key} = Destination.group_key(destination)
+
     packet = %Packet{destination: :group, type: :data, context: Context.none(), data: "group"}
 
-    assert {:error, :unsupported_destination_type} =
-             PacketCrypto.encrypt_outbound(packet, %{public_key: :crypto.strong_rand_bytes(64)})
+    assert {:ok, encrypted_packet} =
+             PacketCrypto.encrypt_outbound(packet, %{group_key: group_key})
+
+    refute encrypted_packet.data == packet.data
+
+    assert {:ok, decrypted_packet} =
+             PacketCrypto.decrypt_inbound(encrypted_packet, %{destination: destination})
+
+    assert decrypted_packet.data == "group"
+  end
+
+  test "returns group key errors for group destination packets" do
+    packet = %Packet{destination: :group, type: :data, context: Context.none(), data: "group"}
+
+    assert {:error, :missing_group_key} = PacketCrypto.encrypt_outbound(packet, %{})
+
+    assert {:error, :invalid_group_key} =
+             PacketCrypto.encrypt_outbound(packet, %{group_key: <<1>>})
+
+    {:ok, destination} = Destination.new(:in, :group, "phase6", nil, ["group-missing"])
+
+    assert {:error, :missing_group_key} =
+             PacketCrypto.decrypt_inbound(packet, %{destination: destination})
+  end
+
+  test "enforces ratchet-only decryption when destination requires ratchets" do
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "phase6", identity, ["ratchet-enforced"])
+    ratchet_private = :crypto.strong_rand_bytes(32)
+    {:ok, destination} = Destination.set_ratchets(destination, [ratchet_private])
+    {:ok, destination} = Destination.enforce_ratchets(destination, true)
+
+    {:ok, ratchet_public} = Destination.current_ratchet_public_key(destination)
+
+    ratchet_record = %{
+      public_key: identity.enc_pub <> identity.sig_pub,
+      ratchet: ratchet_public
+    }
+
+    packet = %Packet{destination: :single, type: :data, context: Context.none(), data: "phase6"}
+
+    assert {:ok, ratcheted_packet} = PacketCrypto.encrypt_outbound(packet, ratchet_record)
+
+    assert {:ok, decrypted_packet} =
+             PacketCrypto.decrypt_inbound(ratcheted_packet, %{destination: destination})
+
+    assert decrypted_packet.data == "phase6"
+
+    base_record = %{public_key: identity.enc_pub <> identity.sig_pub}
+    assert {:ok, base_packet} = PacketCrypto.encrypt_outbound(packet, base_record)
+
+    assert {:error, :ratchet_enforced} =
+             PacketCrypto.decrypt_inbound(base_packet, %{destination: destination})
   end
 
   test "bypasses encryption for link proof packets" do

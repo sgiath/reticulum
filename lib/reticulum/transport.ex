@@ -31,6 +31,7 @@ defmodule Reticulum.Transport do
   @default_path_gc_interval_seconds 5
   @default_receipt_timeout_seconds 10
   @default_receipt_retention_seconds 60
+  @default_ratchet_expiry_seconds 2_592_000
   @pending_path_request_ttl_seconds 30
 
   @type state :: %{
@@ -43,6 +44,7 @@ defmodule Reticulum.Transport do
           path_gc_interval_seconds: pos_integer(),
           receipt_timeout_seconds: pos_integer(),
           receipt_retention_seconds: pos_integer(),
+          ratchet_expiry_seconds: pos_integer(),
           packet_receipts: %{
             binary() => %{
               receipt: PacketReceipt.t(),
@@ -124,6 +126,12 @@ defmodule Reticulum.Transport do
         @default_receipt_retention_seconds
       )
 
+    ratchet_expiry_seconds =
+      normalize_positive_integer(
+        Map.get(config, :ratchet_expiry_seconds),
+        @default_ratchet_expiry_seconds
+      )
+
     :ok = State.subscribe_frames(state_server, self())
     schedule_path_maintenance(path_gc_interval_seconds)
 
@@ -138,6 +146,7 @@ defmodule Reticulum.Transport do
        path_gc_interval_seconds: path_gc_interval_seconds,
        receipt_timeout_seconds: receipt_timeout_seconds,
        receipt_retention_seconds: receipt_retention_seconds,
+       ratchet_expiry_seconds: ratchet_expiry_seconds,
        packet_receipts: %{}
      }}
   end
@@ -232,6 +241,12 @@ defmodule Reticulum.Transport do
   def handle_info(:path_maintenance, state) do
     _expired = Pathfinder.expire_stale_paths(state.state_server, state.path_ttl_seconds)
 
+    _expired_ratchets =
+      State.expire_destination_ratchets(
+        state.state_server,
+        state.ratchet_expiry_seconds
+      )
+
     now = System.system_time(:second)
 
     pending_path_requests =
@@ -296,7 +311,8 @@ defmodule Reticulum.Transport do
              state.state_server,
              announce.destination_hash,
              announce.public_key,
-             announce.app_data
+             announce.app_data,
+             announce_destination_opts(announce)
            ),
          :ok <-
            State.put_path(
@@ -892,6 +908,13 @@ defmodule Reticulum.Transport do
   end
 
   defp endpoint_hash(_endpoint), do: <<0::128>>
+
+  defp announce_destination_opts(%{ratchet: ratchet})
+       when is_binary(ratchet) and byte_size(ratchet) == 32 do
+    [ratchet: ratchet, ratchet_received_at: System.system_time(:second)]
+  end
+
+  defp announce_destination_opts(_announce), do: [ratchet: nil, ratchet_received_at: nil]
 
   defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_integer(_value, default), do: default

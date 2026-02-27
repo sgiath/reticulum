@@ -21,6 +21,7 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.path_gc_interval_seconds == 5
       assert config.receipt_timeout_seconds == 10
       assert config.receipt_retention_seconds == 60
+      assert config.ratchet_expiry_seconds == 2_592_000
 
       assert {:ok, tables} = Node.tables()
       assert Map.has_key?(tables, :destinations)
@@ -49,7 +50,8 @@ defmodule Reticulum.Node.RuntimeTest do
            path_ttl_seconds: 120,
            path_gc_interval_seconds: 2,
            receipt_timeout_seconds: 8,
-           receipt_retention_seconds: 20}
+           receipt_retention_seconds: 20,
+           ratchet_expiry_seconds: 900}
         )
 
       assert is_pid(pid)
@@ -66,6 +68,7 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.path_gc_interval_seconds == 2
       assert config.receipt_timeout_seconds == 8
       assert config.receipt_retention_seconds == 20
+      assert config.ratchet_expiry_seconds == 900
     end
 
     test "returns errors on invalid options" do
@@ -90,6 +93,9 @@ defmodule Reticulum.Node.RuntimeTest do
       assert Node.start_link(receipt_retention_seconds: 0) ==
                {:error, :invalid_receipt_retention_seconds}
 
+      assert Node.start_link(ratchet_expiry_seconds: 0) ==
+               {:error, :invalid_ratchet_expiry_seconds}
+
       assert Node.start_link(unknown: true) == {:error, :unknown_option}
     end
   end
@@ -113,6 +119,17 @@ defmodule Reticulum.Node.RuntimeTest do
 
       unknown_destination = :crypto.strong_rand_bytes(16)
       assert :error == Node.destination(unknown_destination)
+    end
+
+    test "stores and fetches group destinations" do
+      destination_hash = :crypto.strong_rand_bytes(16)
+      group_key = :crypto.strong_rand_bytes(64)
+
+      assert :ok == Node.put_group_destination(destination_hash, group_key)
+
+      assert {:ok, record} = Node.destination(destination_hash)
+      assert record.group_key == group_key
+      assert record.public_key == nil
     end
 
     test "stores and fetches paths" do

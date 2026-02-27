@@ -60,6 +60,7 @@ Status below is based on what is currently implemented in this repository.
 - [x] Telemetry/log hooks for transport receipt/proof lifecycle.
 - [ ] Persistent storage for identities/destinations/paths.
 - [ ] Persistent storage parity for operational state (known-destination metadata, packet/announce hash state, ratchet state).
+- [ ] Ratchet persistence is memory-only in Phase 6; move to disk-backed persistence alongside general runtime persistence.
 - [ ] Warm-start restore policy from persisted runtime state.
 - [ ] Config-file driven bootstrap (instead of imperative-only startup).
 - [ ] `transport_enabled` operational behavior.

@@ -14,7 +14,8 @@ defmodule Reticulum.Bootstrap.Config do
     "path_ttl_seconds",
     "path_gc_interval_seconds",
     "receipt_timeout_seconds",
-    "receipt_retention_seconds"
+    "receipt_retention_seconds",
+    "ratchet_expiry_seconds"
   ]
 
   @node_option_key_map %{
@@ -26,7 +27,8 @@ defmodule Reticulum.Bootstrap.Config do
     "path_ttl_seconds" => :path_ttl_seconds,
     "path_gc_interval_seconds" => :path_gc_interval_seconds,
     "receipt_timeout_seconds" => :receipt_timeout_seconds,
-    "receipt_retention_seconds" => :receipt_retention_seconds
+    "receipt_retention_seconds" => :receipt_retention_seconds,
+    "ratchet_expiry_seconds" => :ratchet_expiry_seconds
   }
 
   @node_runtime_keys [
@@ -40,7 +42,8 @@ defmodule Reticulum.Bootstrap.Config do
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
-    :receipt_retention_seconds
+    :receipt_retention_seconds,
+    :ratchet_expiry_seconds
   ]
 
   @interface_option_keys [

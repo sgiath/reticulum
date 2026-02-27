@@ -57,12 +57,13 @@ defmodule Reticulum.Transport.Announce do
   def build_payload(%Destination{} = destination, opts \\ []) when is_list(opts) do
     app_data = Keyword.get(opts, :app_data, nil)
     random_hash = Keyword.get(opts, :random_hash, :crypto.strong_rand_bytes(@random_hash_len))
-    ratchet = Keyword.get(opts, :ratchet, <<>>)
+    ratchet = Keyword.get(opts, :ratchet, :auto)
 
     with :ok <- validate_destination_hash(destination.hash),
          :ok <- validate_name_hash(destination.name_hash),
          {:ok, identity} <- validate_signing_identity(destination.identity),
          :ok <- validate_random_hash(random_hash),
+         {:ok, ratchet} <- resolve_ratchet(destination, ratchet),
          :ok <- validate_ratchet(ratchet),
          {:ok, app_data_bin} <- normalize_app_data(app_data) do
       public_key = identity.enc_pub <> identity.sig_pub
@@ -83,6 +84,18 @@ defmodule Reticulum.Transport.Announce do
        }}
     end
   end
+
+  defp resolve_ratchet(_destination, ratchet) when is_binary(ratchet), do: {:ok, ratchet}
+
+  defp resolve_ratchet(%Destination{} = destination, :auto) do
+    case Destination.current_ratchet_public_key(destination) do
+      {:ok, ratchet_public} -> {:ok, ratchet_public}
+      :error -> {:ok, <<>>}
+      {:error, _reason} -> {:ok, <<>>}
+    end
+  end
+
+  defp resolve_ratchet(_destination, _ratchet), do: {:error, :invalid_ratchet}
 
   defp parse_fields(data, context_flag) do
     ratchet_size = if context_flag in [1, true, :set], do: @ratchet_len, else: 0

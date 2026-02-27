@@ -46,6 +46,64 @@ defmodule Reticulum.Node.StateTest do
                123
              )
 
+    assert {:error, :invalid_destination_options} =
+             State.put_destination(
+               state_server,
+               destination_hash,
+               :crypto.strong_rand_bytes(64),
+               nil,
+               bad: true
+             )
+
+    assert {:error, :missing_destination_key} =
+             State.put_destination(state_server, destination_hash, nil, nil)
+
+    group_key = :crypto.strong_rand_bytes(64)
+
+    assert :ok =
+             State.put_destination(state_server, destination_hash, nil, nil,
+               group_key: group_key,
+               ratchet: :crypto.strong_rand_bytes(32)
+             )
+
+    assert {:ok, destination_record} = State.destination(state_server, destination_hash)
+    assert destination_record.group_key == group_key
+    assert is_binary(destination_record.ratchet)
+    assert is_integer(destination_record.ratchet_received_at)
+
+    assert :ok =
+             State.put_destination(
+               state_server,
+               destination_hash,
+               :crypto.strong_rand_bytes(64),
+               nil,
+               []
+             )
+
+    assert {:ok, destination_record_after_update} =
+             State.destination(state_server, destination_hash)
+
+    assert destination_record_after_update.group_key == group_key
+    assert is_binary(destination_record_after_update.ratchet)
+    assert is_integer(destination_record_after_update.ratchet_received_at)
+
+    assert :ok =
+             State.put_destination(
+               state_server,
+               destination_hash,
+               :crypto.strong_rand_bytes(64),
+               nil,
+               ratchet: nil,
+               ratchet_received_at: nil
+             )
+
+    assert {:ok, destination_record_after_ratchet_clear} =
+             State.destination(state_server, destination_hash)
+
+    assert destination_record_after_ratchet_clear.group_key == group_key
+    assert destination_record_after_ratchet_clear.ratchet == nil
+    assert destination_record_after_ratchet_clear.ratchet_received_at == nil
+
     assert {:error, :invalid_path_options} =
              State.put_path(state_server, destination_hash, next_hop, 1, :bad)
 
@@ -67,6 +125,26 @@ defmodule Reticulum.Node.StateTest do
 
     assert :ok = State.delete_path(state_server, destination_hash)
     assert {:error, :unknown_path} = State.delete_path(state_server, destination_hash)
+  end
+
+  test "expires remembered destination ratchets", %{state_server: state_server} do
+    destination_hash = :crypto.strong_rand_bytes(16)
+
+    assert :ok =
+             State.put_destination(
+               state_server,
+               destination_hash,
+               :crypto.strong_rand_bytes(64),
+               nil,
+               ratchet: :crypto.strong_rand_bytes(32),
+               ratchet_received_at: 1
+             )
+
+    assert [^destination_hash] = State.expire_destination_ratchets(state_server, 1, 3)
+
+    assert {:ok, destination_record} = State.destination(state_server, destination_hash)
+    assert destination_record.ratchet == nil
+    assert destination_record.ratchet_received_at == nil
   end
 
   test "validates duplicate cache and subscriber APIs", %{state_server: state_server} do
@@ -238,6 +316,13 @@ defmodule Reticulum.Node.StateTest do
                destination: destination,
                callback: fn _event -> :ok end,
                app_data: "state-app"
+             )
+
+    {:ok, group_destination} = Destination.new(:in, :group, "state", nil, ["group"])
+
+    assert {:error, :missing_group_key} =
+             State.register_local_destination(state_server, group_destination.hash, self(),
+               destination: group_destination
              )
 
     assert {:ok, local_destination} = State.local_destination(state_server, destination.hash)

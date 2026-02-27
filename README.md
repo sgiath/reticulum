@@ -74,6 +74,11 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - `true` sends implicit proofs (signature only, reference-aligned default).
 - `false` sends explicit proofs (packet hash + signature).
 
+`[node]` also supports `ratchet_expiry_seconds`.
+
+- ratchet announcements are cached in memory and expire after this TTL.
+- persistence is currently memory-only; disk persistence lands with general runtime persistence.
+
 For imperative startup, pass `startup_lifecycle: YourModule` to
 `Reticulum.Node.start_link/1`. Lifecycle modules implement the
 `Reticulum.Node.StartupLifecycle` callbacks.
@@ -107,8 +112,8 @@ Inbound destinations only return proofs when `destination.proof_strategy` is set
 - `:all` always sends a proof
 - `:app` calls `proof_requested_callback.(event)` and sends a proof only on `true`
 
-`Reticulum.Node.send_data/5` encrypts payloads for `destination: :single` when context is
-active data transport. To send unencrypted payloads, use `destination: :plain`.
+`Reticulum.Node.send_data/5` encrypts payloads for `destination: :single` and `destination: :group`
+when context is active data transport. To send unencrypted payloads, use `destination: :plain`.
 
 ```elixir
 :ok =

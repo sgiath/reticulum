@@ -12,6 +12,7 @@ path_ttl_seconds = 300
 path_gc_interval_seconds = 5
 receipt_timeout_seconds = 10
 receipt_retention_seconds = 60
+ratchet_expiry_seconds = 2592000
 
 [interfaces.link]
 type = "udp"
