@@ -1,3 +1,9 @@
 [submodule "Reticulum"]
 	path = Reticulum
 	url = github.com:markqvist/Reticulum
+[submodule "reticulum_ex"]
+	path = reticulum_ex
+	url = https://codeberg.org/int32/reticulum_ex
+[submodule "lxmf"]
+	path = lxmf
+	url = github.com:markqvist/lxmf

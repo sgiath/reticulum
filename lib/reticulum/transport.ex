@@ -33,6 +33,7 @@ defmodule Reticulum.Transport do
   @type state :: %{
           node_name: atom(),
           state_server: GenServer.server(),
+          transport_enabled: boolean(),
           pending_path_requests: %{binary() => integer()},
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
@@ -92,6 +93,7 @@ defmodule Reticulum.Transport do
     node_name = Keyword.fetch!(opts, :node_name)
     state_server = Keyword.fetch!(opts, :state_server)
     config = Keyword.get(opts, :config, %{})
+    transport_enabled = Map.get(config, :transport_enabled, false) == true
 
     path_ttl_seconds =
       normalize_positive_integer(
@@ -124,6 +126,7 @@ defmodule Reticulum.Transport do
      %{
        node_name: node_name,
        state_server: state_server,
+       transport_enabled: transport_enabled,
        pending_path_requests: %{},
        path_ttl_seconds: path_ttl_seconds,
        path_gc_interval_seconds: path_gc_interval_seconds,

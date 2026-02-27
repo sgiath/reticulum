@@ -19,6 +19,7 @@ defmodule Reticulum.Node do
   alias Reticulum.Destination
   alias Reticulum.Interface.Supervisor, as: InterfaceSupervisor
   alias Reticulum.Node.Config
+  alias Reticulum.Node.Ownership
   alias Reticulum.Node.State
   alias Reticulum.Transport
 
@@ -29,8 +30,9 @@ defmodule Reticulum.Node do
 
   @doc "Starts a node supervisor with validated options."
   def start_link(opts \\ []) when is_list(opts) do
-    with {:ok, %Config{} = config} <- Config.new(opts) do
-      Supervisor.start_link(__MODULE__, config, name: config.name)
+    with {:ok, %Config{} = config} <- Config.new(opts),
+         {:ok, pid} = started <- Supervisor.start_link(__MODULE__, config, name: config.name) do
+      finalize_startup(config, started, pid)
     end
   end
 
@@ -436,6 +438,17 @@ defmodule Reticulum.Node do
   @doc "Returns interface supervisor identity for `node_name`."
   def interface_supervisor(node_name \\ @default_name) when is_atom(node_name) do
     {:global, {__MODULE__, :interfaces, node_name}}
+  end
+
+  defp finalize_startup(config, started, pid) do
+    case Ownership.claim_shared_instance(config, pid) do
+      :ok ->
+        started
+
+      {:error, _reason} = error ->
+        _ = Supervisor.stop(pid)
+        error
+    end
   end
 
   @doc "Returns state server identity for `node_name`."

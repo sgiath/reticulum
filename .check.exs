@@ -1,4 +1,5 @@
 [
+  fix: true,
   tools: [
     {:compiler, true},
     {:formatter, true},
