@@ -9,6 +9,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       [node]
       storage_path = "#{Path.join(System.tmp_dir!(), "reticulum-bootstrap-parser")}" 
       transport_enabled = true
+      startup_mode = "warm_restore"
 
       [interfaces.link]
       type = "udp"
@@ -18,6 +19,7 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
 
     assert {:ok, bootstrap} = TOML.parse_file(config_path)
     assert bootstrap.node_opts[:transport_enabled] == true
+    assert bootstrap.node_opts[:startup_mode] == :warm_restore
     assert [%{name: :link, type: :udp}] = bootstrap.interfaces
   end
 
@@ -49,6 +51,16 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       """)
 
     assert TOML.parse_file(config_path) == {:error, {:unknown_config_section, "extra"}}
+  end
+
+  test "returns startup mode validation error for unsupported startup mode" do
+    config_path =
+      write_config!("""
+      [node]
+      startup_mode = "warm"
+      """)
+
+    assert TOML.parse_file(config_path) == {:error, :invalid_startup_mode}
   end
 
   defp write_config!(contents) do

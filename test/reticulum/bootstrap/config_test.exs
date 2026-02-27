@@ -12,6 +12,7 @@ defmodule Reticulum.Bootstrap.ConfigTest do
           "storage_path" => storage_path,
           "transport_enabled" => true,
           "shared_instance" => false,
+          "startup_mode" => "warm_restore",
           "path_ttl_seconds" => 120,
           "path_gc_interval_seconds" => 2,
           "receipt_timeout_seconds" => 8,
@@ -37,6 +38,8 @@ defmodule Reticulum.Bootstrap.ConfigTest do
 
       assert bootstrap.node_opts[:storage_path] == Path.expand(storage_path)
       assert bootstrap.node_opts[:transport_enabled] == true
+      assert bootstrap.node_opts[:startup_mode] == :warm_restore
+      assert bootstrap.node_opts[:startup_lifecycle] == Reticulum.Node.StartupLifecycle.Default
       assert bootstrap.node_opts[:path_ttl_seconds] == 120
       assert bootstrap.node_opts[:path_gc_interval_seconds] == 2
       assert bootstrap.node_opts[:receipt_timeout_seconds] == 8
@@ -56,6 +59,11 @@ defmodule Reticulum.Bootstrap.ConfigTest do
     test "rejects unknown node option" do
       assert Config.new(%{"node" => %{"unknown" => true}}) ==
                {:error, {:unknown_node_option, "unknown"}}
+    end
+
+    test "rejects invalid startup mode" do
+      assert Config.new(%{"node" => %{"startup_mode" => "warm"}}) ==
+               {:error, :invalid_startup_mode}
     end
 
     test "rejects invalid interface type" do

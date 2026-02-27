@@ -13,6 +13,7 @@ defmodule Reticulum do
   - `Reticulum.Packet` - wire-format packet encode/decode and packet hashing
   - `Reticulum.PacketReceipt` - outbound delivery receipt tracking
   - `Reticulum.Node` - runtime shell and state tables for node lifecycle
+  - `Reticulum.Node.StartupLifecycle` - startup mode callback contract
   - `Reticulum.Bootstrap.Config` - config-to-runtime bootstrap mapping
   - `Reticulum.Bootstrap.Parser.TOML` - TOML bootstrap parser/validator
   - `Reticulum.Interface` - contract for runtime network interfaces

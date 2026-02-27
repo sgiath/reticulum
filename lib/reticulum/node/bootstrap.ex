@@ -11,6 +11,8 @@ defmodule Reticulum.Node.Bootstrap do
     :storage_path,
     :transport_enabled,
     :shared_instance,
+    :startup_mode,
+    :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,

@@ -4,6 +4,9 @@
 storage_path = "~/.reticulum"
 transport_enabled = true
 shared_instance = false
+# startup_mode: "cold" | "warm_restore"
+# warm_restore currently runs restore hooks while ETS runtime tables stay ephemeral.
+startup_mode = "cold"
 path_ttl_seconds = 300
 path_gc_interval_seconds = 5
 receipt_timeout_seconds = 10

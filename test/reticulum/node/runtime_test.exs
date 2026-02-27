@@ -14,6 +14,8 @@ defmodule Reticulum.Node.RuntimeTest do
       assert is_binary(config.storage_path)
       assert config.transport_enabled == false
       assert config.shared_instance == false
+      assert config.startup_mode == :cold
+      assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
       assert config.path_ttl_seconds == 300
       assert config.path_gc_interval_seconds == 5
       assert config.receipt_timeout_seconds == 10
@@ -40,6 +42,8 @@ defmodule Reticulum.Node.RuntimeTest do
            storage_path: storage_path,
            transport_enabled: true,
            shared_instance: true,
+           startup_mode: :warm_restore,
+           startup_lifecycle: Reticulum.Node.StartupLifecycle.Default,
            path_ttl_seconds: 120,
            path_gc_interval_seconds: 2,
            receipt_timeout_seconds: 8,
@@ -53,6 +57,8 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.storage_path == Path.expand(storage_path)
       assert config.transport_enabled == true
       assert config.shared_instance == true
+      assert config.startup_mode == :warm_restore
+      assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
       assert config.path_ttl_seconds == 120
       assert config.path_gc_interval_seconds == 2
       assert config.receipt_timeout_seconds == 8
@@ -64,6 +70,11 @@ defmodule Reticulum.Node.RuntimeTest do
       assert Node.start_link(name: "reticulum") == {:error, :invalid_node_name}
       assert Node.start_link(transport_enabled: :yes) == {:error, :invalid_transport_enabled}
       assert Node.start_link(shared_instance: :yes) == {:error, :invalid_shared_instance}
+      assert Node.start_link(startup_mode: :warm) == {:error, :invalid_startup_mode}
+
+      assert Node.start_link(startup_lifecycle: Reticulum.Node) ==
+               {:error, :invalid_startup_lifecycle}
+
       assert Node.start_link(path_ttl_seconds: 0) == {:error, :invalid_path_ttl_seconds}
 
       assert Node.start_link(path_gc_interval_seconds: 0) ==

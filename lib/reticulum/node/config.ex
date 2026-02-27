@@ -17,6 +17,8 @@ defmodule Reticulum.Node.Config do
           storage_path: String.t(),
           transport_enabled: boolean(),
           shared_instance: boolean(),
+          startup_mode: :cold | :warm_restore,
+          startup_lifecycle: module(),
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
           receipt_timeout_seconds: pos_integer(),
@@ -28,6 +30,8 @@ defmodule Reticulum.Node.Config do
     :storage_path,
     :transport_enabled,
     :shared_instance,
+    :startup_mode,
+    :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
@@ -38,6 +42,8 @@ defmodule Reticulum.Node.Config do
     :storage_path,
     :transport_enabled,
     :shared_instance,
+    :startup_mode,
+    :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
     :receipt_timeout_seconds,
@@ -56,6 +62,11 @@ defmodule Reticulum.Node.Config do
            validate_boolean(Keyword.get(opts, :transport_enabled, false), :transport_enabled),
          {:ok, shared_instance} <-
            validate_boolean(Keyword.get(opts, :shared_instance, false), :shared_instance),
+         {:ok, startup_mode} <- validate_startup_mode(Keyword.get(opts, :startup_mode, :cold)),
+         {:ok, startup_lifecycle} <-
+           validate_startup_lifecycle(
+             Keyword.get(opts, :startup_lifecycle, Reticulum.Node.StartupLifecycle.Default)
+           ),
          {:ok, path_ttl_seconds} <-
            validate_positive_integer(Keyword.get(opts, :path_ttl_seconds, 300), :path_ttl_seconds),
          {:ok, path_gc_interval_seconds} <-
@@ -79,6 +90,8 @@ defmodule Reticulum.Node.Config do
          storage_path: storage_path,
          transport_enabled: transport_enabled,
          shared_instance: shared_instance,
+         startup_mode: startup_mode,
+         startup_lifecycle: startup_lifecycle,
          path_ttl_seconds: path_ttl_seconds,
          path_gc_interval_seconds: path_gc_interval_seconds,
          receipt_timeout_seconds: receipt_timeout_seconds,
@@ -99,6 +112,8 @@ defmodule Reticulum.Node.Config do
             :storage_path,
             :transport_enabled,
             :shared_instance,
+            :startup_mode,
+            :startup_lifecycle,
             :path_ttl_seconds,
             :path_gc_interval_seconds,
             :receipt_timeout_seconds,
@@ -124,6 +139,23 @@ defmodule Reticulum.Node.Config do
   defp validate_boolean(value, _field) when is_boolean(value), do: {:ok, value}
   defp validate_boolean(_value, :transport_enabled), do: {:error, :invalid_transport_enabled}
   defp validate_boolean(_value, :shared_instance), do: {:error, :invalid_shared_instance}
+
+  defp validate_startup_mode(:cold), do: {:ok, :cold}
+  defp validate_startup_mode(:warm_restore), do: {:ok, :warm_restore}
+  defp validate_startup_mode("cold"), do: {:ok, :cold}
+  defp validate_startup_mode("warm_restore"), do: {:ok, :warm_restore}
+  defp validate_startup_mode(_value), do: {:error, :invalid_startup_mode}
+
+  defp validate_startup_lifecycle(module) when is_atom(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :cold_start, 2) and
+         function_exported?(module, :warm_restore, 2) do
+      {:ok, module}
+    else
+      {:error, :invalid_startup_lifecycle}
+    end
+  end
+
+  defp validate_startup_lifecycle(_module), do: {:error, :invalid_startup_lifecycle}
 
   defp validate_positive_integer(value, _field) when is_integer(value) and value > 0,
     do: {:ok, value}

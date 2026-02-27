@@ -64,6 +64,18 @@ alias Reticulum.Node
 The file format uses `[node]` and `[interfaces.<name>]` sections. See
 `config/reticulum.example.toml` for a runnable reference.
 
+`[node]` supports `startup_mode = "cold" | "warm_restore"`.
+
+- `cold` runs cold-start lifecycle hooks.
+- `warm_restore` runs warm-restore lifecycle hooks.
+
+For imperative startup, pass `startup_lifecycle: YourModule` to
+`Reticulum.Node.start_link/1`. Lifecycle modules implement the
+`Reticulum.Node.StartupLifecycle` callbacks.
+
+Current runtime tables are still ETS-only, so warm restore currently behaves as
+a no-op restore hook contract (persistence lands in the next phase).
+
 ## Send With Delivery Receipt
 
 ```elixir

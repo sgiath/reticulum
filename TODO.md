@@ -13,15 +13,17 @@ Implemented in commit `95aa293`.
 
 ## Phase 2 - Bootstrap Config Pipeline
 
+Implemented in commit `e85fa91`.
+
 - [x] Add config-file driven node and interface bootstrap (not only imperative startup).
 - [x] Add schema-validated bootstrap parser (TOML first) with explicit config-to-runtime mapping.
 - [x] Add integration tests for config-driven bootstrap paths.
 
 ## Phase 3 - Startup Lifecycle Contracts
 
-- [ ] Add startup mode contract for cold start vs warm restore hooks.
-- [ ] Add integration tests for startup mode behavior.
-- [ ] Update `config/reticulum.example.toml` + README config section for startup mode options.
+- [x] Add startup mode contract for cold start vs warm restore hooks.
+- [x] Add integration tests for startup mode behavior.
+- [x] Update `config/reticulum.example.toml` + README config section for startup mode options.
 
 ## Phase 4 - Packet Crypto Baseline
 

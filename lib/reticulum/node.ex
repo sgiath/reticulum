@@ -5,6 +5,7 @@ defmodule Reticulum.Node do
   This module introduces the first slice of node lifecycle support:
 
   - validated startup configuration
+  - startup mode lifecycle callbacks (`:cold` and `:warm_restore`)
   - supervision tree for runtime services
   - in-memory ETS state for destinations, paths, packet hashes, and handlers
 
@@ -21,6 +22,7 @@ defmodule Reticulum.Node do
   alias Reticulum.Node.Bootstrap
   alias Reticulum.Node.Config
   alias Reticulum.Node.Ownership
+  alias Reticulum.Node.StartupLifecycle
   alias Reticulum.Node.State
   alias Reticulum.Transport
 
@@ -451,10 +453,10 @@ defmodule Reticulum.Node do
   end
 
   defp finalize_startup(config, started, pid) do
-    case Ownership.claim_shared_instance(config, pid) do
-      :ok ->
-        started
-
+    with :ok <- Ownership.claim_shared_instance(config, pid),
+         :ok <- StartupLifecycle.run(config.startup_lifecycle, config.startup_mode, config, pid) do
+      started
+    else
       {:error, _reason} = error ->
         _ = Supervisor.stop(pid)
         error
