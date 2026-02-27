@@ -1,0 +1,24 @@
+# Reticulum bootstrap config example for Node.start_from_config/2
+
+[node]
+storage_path = "~/.reticulum"
+transport_enabled = true
+shared_instance = false
+path_ttl_seconds = 300
+path_gc_interval_seconds = 5
+receipt_timeout_seconds = 10
+receipt_retention_seconds = 60
+
+[interfaces.link]
+type = "udp"
+enabled = true
+listen_ip = "127.0.0.1"
+listen_port = 43001
+default_peer_ip = "127.0.0.1"
+default_peer_port = 43002
+
+[interfaces.backup]
+type = "udp"
+enabled = false
+listen_ip = "127.0.0.1"
+listen_port = 43003

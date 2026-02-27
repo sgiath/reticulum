@@ -48,6 +48,22 @@ identity = Identity.new()
   )
 ```
 
+## Config-Driven Bootstrap
+
+Use `Reticulum.Node.start_from_config/2` to start a node and its interfaces from TOML:
+
+```elixir
+alias Reticulum.Node
+
+{:ok, _pid} =
+  Node.start_from_config("config/reticulum.example.toml",
+    name: Reticulum.Node.ConfigExample
+  )
+```
+
+The file format uses `[node]` and `[interfaces.<name>]` sections. See
+`config/reticulum.example.toml` for a runnable reference.
+
 ## Send With Delivery Receipt
 
 ```elixir

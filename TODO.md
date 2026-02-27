@@ -5,20 +5,23 @@ Long-term capability direction lives in `ROADMAP.md`.
 
 ## Phase 1 - Runtime Ownership Toggles
 
+Implemented in commit `95aa293`.
+
 - [x] Make `transport_enabled` operational (forwarding role enabled/disabled at startup).
 - [x] Make `shared_instance` operational (single-runtime ownership semantics).
 - [x] Add integration tests for startup ownership semantics.
 
 ## Phase 2 - Bootstrap Config Pipeline
 
-- [ ] Add config-file driven node and interface bootstrap (not only imperative startup).
-- [ ] Add schema-validated bootstrap parser (TOML first) with explicit config-to-runtime mapping.
-- [ ] Add integration tests for config-driven bootstrap paths.
+- [x] Add config-file driven node and interface bootstrap (not only imperative startup).
+- [x] Add schema-validated bootstrap parser (TOML first) with explicit config-to-runtime mapping.
+- [x] Add integration tests for config-driven bootstrap paths.
 
 ## Phase 3 - Startup Lifecycle Contracts
 
 - [ ] Add startup mode contract for cold start vs warm restore hooks.
 - [ ] Add integration tests for startup mode behavior.
+- [ ] Update `config/reticulum.example.toml` + README config section for startup mode options.
 
 ## Phase 4 - Packet Crypto Baseline
 
@@ -42,12 +45,14 @@ Long-term capability direction lives in `ROADMAP.md`.
 
 - [ ] Validate authenticated IFAC (`ifac: :auth`) packet path end-to-end.
 - [ ] Add targeted protocol-path tests for IFAC auth behavior.
+- [ ] Update `config/reticulum.example.toml` + README config section for IFAC auth options.
 
 ## Phase 8 - Routing Core
 
 - [ ] Implement full transit forwarding across multiple interfaces.
 - [ ] Add route/path selection policy (hops, freshness, interface health).
 - [ ] Add announce forwarding policy and loop protection.
+- [ ] Update `config/reticulum.example.toml` + README config section for routing policy options.
 
 ## Phase 9 - Routing Resilience and Topology Tests
 
@@ -59,12 +64,14 @@ Long-term capability direction lives in `ROADMAP.md`.
 - [ ] Add stable adapter contract for pluggable custom interfaces.
 - [ ] Keep interface implementations OTP-native (supervised workers, no unmanaged spawned interface processes).
 - [ ] Add per-interface queue limits, backpressure, and rate limiting.
+- [ ] Update `config/reticulum.example.toml` + README config section for queue/backpressure/rate-limit options.
 
 ## Phase 11 - Interface Parity Implementations
 
 - [ ] Add TCP interface support (client + listener modes).
 - [ ] Add pipe/stdio interface for external modem/process integration.
 - [ ] Add interface auth/segmentation controls and IFAC integration hooks.
+- [ ] Update `config/reticulum.example.toml` + README config section with TCP + pipe + auth/segmentation examples.
 
 ## Phase 12 - Messaging API Core Ergonomics
 

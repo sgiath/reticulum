@@ -40,6 +40,8 @@ defmodule Reticulum.MixProject do
 
   defp deps do
     [
+      {:toml, "~> 0.7"},
+
       # Development
       {:ex_check, "~> 0.16", only: [:dev], runtime: false, optional: true},
       {:credo, "~> 1.7", only: [:dev], runtime: false, optional: true},

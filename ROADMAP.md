@@ -24,6 +24,7 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Interface authentication and segmentation controls (IFAC key material).
 - [ ] Interface mode semantics parity (`full`, `point_to_point`, `access_point`, `roaming`, `boundary`, `gateway`).
 - [ ] Per-interface queue/backpressure/rate-limiting metadata.
+- [ ] Keep `config/reticulum.example.toml` + README config docs updated when new interface types/options land.
 
 ### Packets, Transport, and Messaging
 
@@ -63,6 +64,7 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Config-file driven bootstrap (instead of imperative-only startup).
 - [ ] `transport_enabled` operational behavior.
 - [ ] `shared_instance` parity (ownership + local client IPC semantics and runtime service surface).
+- [ ] Keep `config/reticulum.example.toml` + README config docs updated when startup/runtime config knobs change.
 - [ ] Diagnostics/status snapshots and bounded-memory policies.
 
 ### Interop and Test Coverage
@@ -91,6 +93,7 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Add file-based configuration bootstrap for node + interfaces.
 - [ ] Make `shared_instance` enforce single-runtime ownership semantics.
 - [ ] Implement shared-instance local client API/IPC parity.
+- [ ] Keep `config/reticulum.example.toml` + README config docs in sync for each new config surface.
 
 ### Horizon 3 - Compliance and Fault Tolerance
 
@@ -106,6 +109,7 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Add richer telemetry and diagnostics APIs for operations.
 - [ ] Publish tuning guidance for constrained/high-latency links.
 - [ ] Add reference-compatible operator tooling surface (`rnsd`/status/path/probe equivalent capabilities).
+- [ ] Keep `config/reticulum.example.toml` + README config docs in sync with operational tuning options.
 
 ### Horizon 5 - Higher-Level RNS Protocols
 

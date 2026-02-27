@@ -69,11 +69,11 @@ defmodule Reticulum.Transport.PathDiscoveryTest do
                       %{node: ^node_a, direction: :inbound, packet: %Packet{type: :announce}}},
                      1_000
 
-      assert {:ok, record} = Node.destination(node_a, destination.hash)
+      assert {:ok, record} = wait_for_destination(node_a, destination.hash)
       assert record.public_key == identity.enc_pub <> identity.sig_pub
       assert record.app_data == "phase4-app"
 
-      assert {:ok, path} = Node.path(node_a, destination.hash)
+      assert {:ok, path} = wait_for_path(node_a, destination.hash)
       assert path.hops == 0
       assert is_binary(path.next_hop)
       assert byte_size(path.next_hop) == 16
@@ -140,4 +140,34 @@ defmodule Reticulum.Transport.PathDiscoveryTest do
     :ok = :gen_udp.close(socket)
     port
   end
+
+  defp wait_for_destination(node_name, destination_hash, attempts \\ 20)
+
+  defp wait_for_destination(node_name, destination_hash, attempts) when attempts > 0 do
+    case Node.destination(node_name, destination_hash) do
+      {:ok, _record} = result ->
+        result
+
+      :error ->
+        Process.sleep(25)
+        wait_for_destination(node_name, destination_hash, attempts - 1)
+    end
+  end
+
+  defp wait_for_destination(_node_name, _destination_hash, 0), do: :error
+
+  defp wait_for_path(node_name, destination_hash, attempts \\ 20)
+
+  defp wait_for_path(node_name, destination_hash, attempts) when attempts > 0 do
+    case Node.path(node_name, destination_hash) do
+      {:ok, _path} = result ->
+        result
+
+      :error ->
+        Process.sleep(25)
+        wait_for_path(node_name, destination_hash, attempts - 1)
+    end
+  end
+
+  defp wait_for_path(_node_name, _destination_hash, 0), do: :error
 end

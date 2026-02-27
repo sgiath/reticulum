@@ -18,6 +18,7 @@ defmodule Reticulum.Node do
 
   alias Reticulum.Destination
   alias Reticulum.Interface.Supervisor, as: InterfaceSupervisor
+  alias Reticulum.Node.Bootstrap
   alias Reticulum.Node.Config
   alias Reticulum.Node.Ownership
   alias Reticulum.Node.State
@@ -35,6 +36,15 @@ defmodule Reticulum.Node do
       finalize_startup(config, started, pid)
     end
   end
+
+  @doc "Starts node + interfaces from TOML bootstrap config file."
+  def start_from_config(path, node_overrides \\ [])
+
+  def start_from_config(path, node_overrides) when is_binary(path) and is_list(node_overrides) do
+    Bootstrap.start(path, node_overrides)
+  end
+
+  def start_from_config(_path, _node_overrides), do: {:error, :invalid_options}
 
   @doc "Returns runtime config for the default node."
   def config, do: config(@default_name)
