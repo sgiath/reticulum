@@ -1,188 +1,105 @@
 # Reticulum Elixir Roadmap
 
-## Goal
+This file tracks implemented capability status and long-term direction.
+Detailed short-term execution lives in `TODO.md`.
 
-Move from MVP parity (runtime + UDP + basic messaging/proofs) to practical
-feature completeness for core Reticulum behavior.
+## Current Capability Snapshot
 
-## Implemented So Far (Phases 1-7)
+Status below is based on what is currently implemented in this repository.
 
-Condensed progress notes from `ROADMAP_OLD.md`:
+### Interfaces
 
-- [x] Phase 1: Node runtime shell (config validation, supervision tree, runtime state).
-- [x] Phase 2: Interface MVP (interface behavior/lifecycle + UDP interface + packet I/O framing).
-- [x] Phase 3: Transport MVP (outbound/inbound pipelines + duplicate suppression + destination registry wiring).
-- [x] Phase 4: Announces/path discovery (announce ingest, destination memory, path request/response, path expiry/refresh).
-- [x] Phase 5: Messaging API baseline (destination callbacks, high-level send/announce APIs, request/response hooks).
-- [x] Phase 6: Proofs/receipts baseline (receipt tracking, explicit proofs, delivery callbacks/status transitions).
-- [x] Phase 7: Interop/hardening baseline (Elixir/Python E2E tests, malformed input property/fuzz tests, telemetry/docs).
+- [x] Runtime interface behavior and lifecycle contract (`Reticulum.Interface`).
+- [x] UDP interface with inbound/outbound frame publishing (`Reticulum.Interface.UDP`).
+- [x] Interface runtime management (start/list/stop/send via `Reticulum.Interface.Supervisor`).
+- [ ] TCP client/listener interfaces.
+- [ ] Pipe/stdio interface.
+- [ ] External pluggable interface loading.
+- [ ] Interface authentication and segmentation controls (IFAC key material).
+- [ ] Per-interface queue/backpressure/rate-limiting metadata.
 
-## Why This Roadmap Exists
+### Packets, Transport, and Messaging
 
-Current implementation is solid for the first slice, but several core protocol
-areas are still partial:
+- [x] Packet struct and wire-format encode/decode (`Reticulum.Packet`).
+- [x] Packet hash and truncated hash parity with Python vectors.
+- [x] Raw frame send/receive through runtime node APIs.
+- [x] Transport ingress/egress pipeline with duplicate suppression.
+- [x] Announce parse/validate/build and destination/path ingestion.
+- [x] Path request/path response and path TTL expiration.
+- [x] Local destination callbacks and request/response hook registration.
+- [x] Delivery receipt tracking with explicit proof validation.
+- [x] High-level messaging send/announce API wrappers.
+- [ ] Payload encryption/decryption for destination packet data flows (`:single`/`:group`).
+- [ ] Implicit proof behavior and `Destination.proof_strategy` semantics.
+- [ ] Full authenticated IFAC (`ifac: :auth`) processing path.
+- [ ] Multi-hop forwarding plane and route selection policy.
+- [ ] Payload fragmentation/reassembly for large application messages.
 
-- only UDP interface is implemented (`Node.start_udp_interface/2`)
-- transport forwarding is minimal (no full multi-hop forwarding plane)
-- packet encryption/decryption semantics are not complete for all destination types
-- link/channel/resource flows are not implemented
-- runtime persistence/config bootstrap are minimal
-- some config fields exist but are not operational (`transport_enabled`, `shared_instance`)
+### Link, Channel, and Resource Layers
 
-## Roadmap
+- [ ] Link establishment/lifecycle (`:link_request` flow and session state machine).
+- [ ] Channel semantics over links.
+- [ ] Resource transfer primitives (segmenting/resume/timeout).
 
-### Phase 8 - Interface Parity
+### Runtime, Persistence, and Operations
 
-- [ ] Add TCP interface support (client + listener modes).
-- [ ] Add pipe/stdio interface for external modem/process integration.
-- [ ] Add pluggable custom interface loading through a stable behavior/adapter contract.
-- [ ] Add interface auth/segmentation controls (IFAC/auth key material per interface).
-- [ ] Add per-interface rate limiting, queue/backpressure, and MTU metadata.
+- [x] Node runtime shell, config validation, and supervision tree.
+- [x] ETS-backed runtime tables for destinations/paths/interfaces/handlers.
+- [x] Telemetry/log hooks for transport receipt/proof lifecycle.
+- [ ] Persistent storage for identities/destinations/paths.
+- [ ] Warm-start restore policy from persisted runtime state.
+- [ ] Config-file driven bootstrap (instead of imperative-only startup).
+- [ ] `transport_enabled` operational behavior.
+- [ ] `shared_instance` ownership semantics.
+- [ ] Diagnostics/status snapshots and bounded-memory policies.
 
-Candidate modules:
+### Interop and Test Coverage
 
-- `Reticulum.Interface.TCP`
-- `Reticulum.Interface.Pipe`
-- `Reticulum.Interface.Loader`
+- [x] Elixir <-> Python interop vectors for packet, crypto, identity, destination.
+- [x] Integration interop tests for send/receive network sessions.
+- [x] Malformed input and regression coverage for current packet/crypto scope.
+- [ ] Interop coverage for links/channels/resources.
+- [ ] Fault-injection campaigns (loss/duplication/reordering/stale paths).
+- [ ] Release compatibility matrix reports.
 
-Candidate tests:
+## Long-Term Roadmap (Capability Horizons)
 
-- `test/reticulum/interface/tcp_test.exs`
-- `test/reticulum/interface/pipe_test.exs`
-- `test/reticulum/interface/auth_test.exs`
+### Horizon 1 - Complete Core Reticulum Data Plane
 
-### Phase 9 - Packet and Crypto Semantics Completion
+- [ ] Implement links, channels, and resources as first-class layers.
+- [ ] Add link session key lifecycle and keepalive/teardown behavior.
+- [ ] Ensure end-to-end interoperability for link/channel/resource traffic.
 
-- [ ] Implement outbound payload encryption for `:single` destinations and matching inbound decryption.
-- [ ] Implement group destination crypto flow (`:group`) and validation paths.
-- [ ] Implement implicit proof behavior and proof strategy handling (`Destination.proof_strategy`).
-- [ ] Validate/handle authenticated interface packets (`ifac: :auth`) end-to-end.
-- [ ] Expand packet context handling to full reference-compatible set for active features.
+### Horizon 2 - Durable and Config-Driven Runtime
 
-Candidate modules:
+- [ ] Persist identity, destination, and path state under `storage_path`.
+- [ ] Add startup policy for cold vs warm restore.
+- [ ] Add file-based configuration bootstrap for node + interfaces.
+- [ ] Make `shared_instance` enforce single-runtime ownership semantics.
 
-- `Reticulum.Packet`
-- `Reticulum.Transport`
-- `Reticulum.Destination`
-- `Reticulum.Identity`
+### Horizon 3 - Compliance and Fault Tolerance
 
-Candidate tests:
+- [ ] Extend interop suite to full packet context and authenticated-interface coverage.
+- [ ] Add deterministic network fault simulation to CI.
+- [ ] Publish compatibility matrix per release against reference behavior.
 
-- `test/reticulum/transport/crypto_flow_test.exs`
-- `test/reticulum/reference/crypto_interop_test.exs`
+### Horizon 4 - Performance and Operability
 
-### Phase 10 - Transport and Routing Plane Completion
+- [ ] Add benchmark suite (latency, throughput, memory) across all active interfaces.
+- [ ] Add bounded-memory eviction policies for packet/path/receipt/request caches.
+- [ ] Add richer telemetry and diagnostics APIs for operations.
+- [ ] Publish tuning guidance for constrained/high-latency links.
 
-- [ ] Implement full forwarding behavior for transit traffic across interfaces.
-- [ ] Add route/path selection policy (hops, freshness, interface availability).
-- [ ] Add path request retry/backoff and duplicate request suppression policy tuning.
-- [ ] Add announce forwarding policy and loop protection across multi-interface nodes.
-- [ ] Make `transport_enabled` operational (disable/enable forwarding roles at runtime start).
+### Horizon 5 - Higher-Level RNS Protocols
 
-Candidate modules:
+- [ ] LXMF.
+- [ ] LXST.
+- [ ] RRTP.
 
-- `Reticulum.Transport`
-- `Reticulum.Transport.Pathfinder`
-- `Reticulum.Transport.Announce`
+## Definition of Done
 
-Candidate tests:
-
-- `test/reticulum/transport/forwarding_test.exs`
-- `test/reticulum/transport/path_selection_test.exs`
-
-### Phase 11 - Link, Channel, and Resource Layer
-
-- [ ] Implement link establishment and lifecycle state machine (`:link_request` flows).
-- [ ] Add encrypted link sessions with key lifecycle/rotation behavior.
-- [ ] Add channel semantics (ordered/reliable framed exchange over links).
-- [ ] Add resource transfer primitives (segmentation, checks, resume/timeout paths).
-- [ ] Add API surface for link open/close, send/receive, and transfer progress.
-
-Candidate modules:
-
-- `Reticulum.Link`
-- `Reticulum.Channel`
-- `Reticulum.Resource`
-
-Candidate tests:
-
-- `test/reticulum/link/handshake_test.exs`
-- `test/reticulum/channel/reliability_test.exs`
-- `test/reticulum/resource/transfer_test.exs`
-
-### Phase 12 - Messaging API Completion
-
-- [ ] Add request/response correlation API (pending map, timeout, cancellation).
-- [ ] Add unregister/introspection helpers to mirror all registration APIs.
-- [ ] Add message fragmentation/reassembly path for payloads beyond single-packet practical MTU.
-- [ ] Add link-aware messaging API once link layer lands.
-- [ ] Add clearer error taxonomy for callers (routing, crypto, interface, timeout classes).
-
-Candidate modules:
-
-- `Reticulum.Messaging`
-- `Reticulum.Destination.Callbacks`
-- `Reticulum.Node`
-
-Candidate tests:
-
-- `test/reticulum/messaging/request_response_test.exs`
-- `test/reticulum/messaging/error_taxonomy_test.exs`
-
-### Phase 13 - Persistence and Bootstrap
-
-- [ ] Persist identities, known destinations, and path cache snapshots under `storage_path`.
-- [ ] Add configurable restore policy at startup (cold start vs warm cache).
-- [ ] Add config-file driven node and interface boot (not only imperative API startup).
-- [ ] Implement distributed bootstrap/backbone discovery hooks for first connectivity.
-- [ ] Make `shared_instance` operational (single runtime ownership semantics).
-
-Candidate modules:
-
-- `Reticulum.Storage`
-- `Reticulum.Node.Config.Loader`
-- `Reticulum.Bootstrap`
-
-Candidate tests:
-
-- `test/reticulum/storage/persistence_test.exs`
-- `test/reticulum/bootstrap/discovery_test.exs`
-
-### Phase 14 - Interop, Compliance, and Fault Tolerance
-
-- [ ] Extend Elixir <-> Python interop suite to cover links, channels, and resources.
-- [ ] Add protocol compliance vectors for packet contexts, authenticated interfaces, and proofs.
-- [ ] Add deterministic fault-injection tests (packet loss, duplication, reordering, stale paths).
-- [ ] Add property/fuzz campaigns for packet decode + transport ingress invariants.
-- [ ] Build a compatibility matrix report per release.
-
-Candidate tests:
-
-- `test/reticulum/interop/link_session_test.exs`
-- `test/reticulum/interop/resource_transfer_test.exs`
-- `test/reticulum/faults/network_faults_test.exs`
-
-### Phase 15 - Performance and Operations Hardening
-
-- [ ] Add benchmark suite (latency, throughput, memory) across UDP/TCP/pipe.
-- [ ] Add bounded memory policies for caches, receipts, and pending request state.
-- [ ] Expand telemetry schema (per-interface tx/rx, queue depth, routing/proof outcomes).
-- [ ] Add operational diagnostics APIs (status snapshots, counters, route table summaries).
-- [ ] Publish tuning guide for low-bandwidth and high-latency networks.
-
-Candidate modules:
-
-- `Reticulum.Observability`
-- `Reticulum.Diagnostics`
-
-Candidate tests/benches:
-
-- `test/reticulum/observability/metrics_schema_test.exs`
-- `bench/transport_bench.exs`
-
-## Definition of Done For This Roadmap
-
-- [ ] Each phase has green unit + integration coverage and interop checks.
-- [ ] `mix check --no-retry` passes for all changes.
-- [ ] README/docs include runnable examples for each major capability.
-- [ ] Compatibility notes list supported features vs Python reference scope.
+- [ ] New phase capabilities have green unit/integration coverage.
+- [ ] Interop checks are added for every newly completed protocol layer.
+- [ ] `mix check --no-retry` passes for roadmap-delivering changes.
+- [ ] README/docs include runnable examples for completed major capabilities.
+- [ ] Release notes include updated compatibility/feature matrix.
