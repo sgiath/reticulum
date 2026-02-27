@@ -4,3 +4,78 @@
 [![Docs](https://img.shields.io/badge/api-docs-green.svg?style=flat)](https://hexdocs.pm/reticulum)
 
 Elixir implementation of [Reticulum](https://github.com/markqvist/Reticulum) protocol
+
+## Status
+
+Core roadmap phases are implemented through runtime shell, UDP transport,
+announce/path discovery, messaging API, and proof/receipt handling.
+
+Runtime node tables (destinations, paths, packet-hash cache, interfaces, local
+destinations, and message handlers) are ETS-only and intentionally cold-start on
+every restart.
+
+## Quick Start
+
+```elixir
+alias Reticulum.Destination
+alias Reticulum.Identity
+alias Reticulum.Node
+
+{:ok, _pid} =
+  Node.start_link(
+    name: Reticulum.Node.Example,
+    storage_path: Path.join(System.tmp_dir!(), "reticulum-example"),
+    receipt_timeout_seconds: 3
+  )
+
+{:ok, _iface} =
+  Node.start_udp_interface(Reticulum.Node.Example,
+    name: :udp,
+    listen_ip: {127, 0, 0, 1},
+    listen_port: 43_001,
+    default_peer_ip: {127, 0, 0, 1},
+    default_peer_port: 43_002
+  )
+
+identity = Identity.new()
+{:ok, destination} = Destination.new(:in, :single, "example", identity, ["inbox"])
+
+:ok =
+  Node.register_local_announce_destination(Reticulum.Node.Example, destination, self(),
+    callback: fn event ->
+      IO.inspect({:inbound_payload, event.packet.data})
+    end
+  )
+```
+
+## Send With Delivery Receipt
+
+```elixir
+alias Reticulum.Node
+
+destination_hash = <<0::128>>
+public_key = :crypto.strong_rand_bytes(64)
+
+:ok = Node.put_destination(Reticulum.Node.Example, destination_hash, public_key, nil)
+
+{:ok, receipt_hash} =
+  Node.send_data(Reticulum.Node.Example, :udp, destination_hash, "hello", track_receipt: true)
+
+case Node.receipt(Reticulum.Node.Example, receipt_hash) do
+  {:ok, receipt} -> IO.inspect(receipt.status)
+  :error -> :not_found
+end
+```
+
+## Observability
+
+`Reticulum.Transport` emits runtime hooks through `Reticulum.Observability`:
+
+- telemetry event names start with `[:reticulum, ...]`
+- proof events include `[:reticulum, :transport, :proof, :sent]` and
+  `[:reticulum, :transport, :proof, :invalid]`
+- receipt lifecycle events include `[:reticulum, :transport, :receipt, :tracked]`,
+  `[:reticulum, :transport, :receipt, :delivered]`, and
+  `[:reticulum, :transport, :receipt, :timed_out]`
+
+Attach telemetry handlers in your application to collect and export metrics.

@@ -36,6 +36,7 @@ defmodule Reticulum.Destination do
           links: list(),
           identity: Identity.t() | nil,
           name: String.t() | nil,
+          name_hash: binary() | nil,
           hash: binary() | nil
         }
 
@@ -46,6 +47,7 @@ defmodule Reticulum.Destination do
             links: [],
             identity: nil,
             name: nil,
+            name_hash: nil,
             hash: nil
 
   @doc """
@@ -69,12 +71,14 @@ defmodule Reticulum.Destination do
     with :ok <- validate_direction(direction),
          :ok <- validate_type(type),
          :ok <- validate_name(app_name, aspects),
+         {:ok, name_hash} <- name_hash(app_name, aspects),
          {:ok, destination} <-
            add_identity(%__MODULE__{direction: direction, type: type, identity: identity}),
          {:ok, destination_hash} <- hash(identity_hash(destination), app_name, aspects) do
       destination =
         destination
         |> add_name(app_name, aspects)
+        |> Map.put(:name_hash, name_hash)
         |> Map.put(:hash, destination_hash)
 
       {:ok, destination}
@@ -96,6 +100,19 @@ defmodule Reticulum.Destination do
        material
        |> Crypto.sha256()
        |> binary_part(0, @destination_hash_len)}
+    end
+  end
+
+  @doc "Returns `{:ok, name_hash}` for app name and aspects."
+  def name_hash(app_name, aspects \\ [])
+
+  def name_hash(app_name, aspects) when is_binary(app_name) and is_list(aspects) do
+    with :ok <- validate_name(app_name, aspects) do
+      {:ok,
+       [app_name | aspects]
+       |> Enum.join(".")
+       |> Crypto.sha256()
+       |> binary_part(0, @name_hash_len)}
     end
   end
 
@@ -132,11 +149,7 @@ defmodule Reticulum.Destination do
   defp identity_hash(%__MODULE__{identity: %Identity{hash: identity_hash}}), do: identity_hash
 
   defp hash_material(identity_hash_or_identity, app_name, aspects) do
-    name_hash =
-      [app_name | aspects]
-      |> Enum.join(".")
-      |> Crypto.sha256()
-      |> binary_part(0, @name_hash_len)
+    {:ok, name_hash} = name_hash(app_name, aspects)
 
     case identity_hash_or_identity do
       nil ->

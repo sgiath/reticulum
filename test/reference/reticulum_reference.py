@@ -289,6 +289,25 @@ def packet_hash_cmd(args):
         print(f"truncated_hash={packet.getTruncatedHash().hex()}")
 
 
+def packet_malformed_batch_cmd(args):
+    if len(args) == 0:
+        raise ValueError("packet_malformed_batch expects at least 1 argument")
+
+    for raw_hex in args:
+        raw = bytes.fromhex(raw_hex)
+
+        unpack_packet = RNS.Packet(None, raw)
+        unpack_success = unpack_packet.unpack()
+
+        hash_packet = RNS.Packet(None, raw)
+        hash_success = hash_packet.unpack()
+
+        print(
+            f"unpack_success={'true' if unpack_success else 'false'} "
+            f"hash_success={'true' if hash_success else 'false'}"
+        )
+
+
 COMMANDS = {
     "hkdf": hkdf_cmd,
     "token_encrypt_fixed_iv": token_encrypt_fixed_iv_cmd,
@@ -304,6 +323,7 @@ COMMANDS = {
     "packet_pack": packet_pack_cmd,
     "packet_unpack": packet_unpack_cmd,
     "packet_hash": packet_hash_cmd,
+    "packet_malformed_batch": packet_malformed_batch_cmd,
 }
 
 

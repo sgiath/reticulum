@@ -1,4 +1,4 @@
-defmodule Reticulum.ReferenceInteropTest do
+defmodule Reticulum.Reference.InteropTest do
   use ExUnit.Case, async: true
 
   alias Reticulum.Crypto.Fernet

@@ -1,4 +1,4 @@
-defmodule Reticulum.PacketReferenceVectorsTest do
+defmodule Reticulum.Reference.PacketVectorsTest do
   use ExUnit.Case, async: true
 
   alias Reticulum.ReferenceRunner

@@ -1,4 +1,4 @@
-defmodule Reticulum.MalformedReferenceVectorsTest do
+defmodule Reticulum.Reference.MalformedVectorsTest do
   use ExUnit.Case, async: true
 
   alias Reticulum.Crypto.Fernet
@@ -143,6 +143,31 @@ defmodule Reticulum.MalformedReferenceVectorsTest do
     end
   end
 
+  describe "Packet malformed fuzz vectors" do
+    test "random short packet inputs are rejected consistently" do
+      :rand.seed(:exsss, {101, 202, 303})
+
+      samples = for _ <- 1..64, do: random_bytes(:rand.uniform(18) - 1)
+
+      reference_results =
+        samples
+        |> Enum.map(&hex/1)
+        |> then(&ReferenceRunner.run!("packet_malformed_batch", &1))
+        |> String.split("\n", trim: true)
+
+      assert length(reference_results) == length(samples)
+
+      for {raw, reference_result} <- Enum.zip(samples, reference_results) do
+        fields = parse_space_kv_line(reference_result)
+
+        assert fields["unpack_success"] == "false"
+        assert fields["hash_success"] == "false"
+        assert {:error, _reason} = Reticulum.Packet.hash(raw)
+        assert {:error, _reason} = Reticulum.Packet.truncated_hash(raw)
+      end
+    end
+  end
+
   defp reference_identity_fixture(private_key) do
     private_key
     |> hex()
@@ -165,5 +190,22 @@ defmodule Reticulum.MalformedReferenceVectorsTest do
     range
     |> Enum.to_list()
     |> :binary.list_to_bin()
+  end
+
+  defp random_bytes(0), do: <<>>
+
+  defp random_bytes(length) when is_integer(length) and length > 0 do
+    for _ <- 1..length, into: <<>>, do: <<:rand.uniform(256) - 1>>
+  end
+
+  defp parse_space_kv_line(line) do
+    line
+    |> String.split(" ", trim: true)
+    |> Enum.reduce(%{}, fn kv, acc ->
+      case String.split(kv, "=", parts: 2) do
+        [key, value] -> Map.put(acc, key, value)
+        _ -> acc
+      end
+    end)
   end
 end
