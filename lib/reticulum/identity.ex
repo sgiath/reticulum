@@ -22,6 +22,8 @@ defmodule Reticulum.Identity do
   alias Reticulum.Crypto
   alias Reticulum.Crypto.Fernet
 
+  @private_key_len 64
+  @public_key_len 64
   @derived_key_len 64
 
   @typedoc "Identity key material and derived hash"
@@ -43,6 +45,46 @@ defmodule Reticulum.Identity do
     |> maybe_gen_keys(gen_keys)
     |> update_hash()
   end
+
+  @doc "Builds an identity from a 64-byte private key blob."
+  def from_private_key(private_key)
+
+  def from_private_key(<<enc_sec::binary-size(32), sig_sec::binary-size(32)>> = _private_key) do
+    try do
+      enc_pub = :crypto.generate_key(:eddh, :x25519, enc_sec)
+      sig_pub = :crypto.generate_key(:eddsa, :ed25519, sig_sec)
+
+      {:ok,
+       %__MODULE__{
+         enc_sec: enc_sec,
+         enc_pub: enc_pub,
+         sig_sec: sig_sec,
+         sig_pub: sig_pub
+       }
+       |> update_hash()}
+    rescue
+      _ -> {:error, :invalid_private_key}
+    end
+  end
+
+  def from_private_key(private_key)
+      when is_binary(private_key) and byte_size(private_key) != @private_key_len,
+      do: {:error, :invalid_private_key}
+
+  def from_private_key(_private_key), do: {:error, :invalid_private_key}
+
+  @doc "Builds an identity shell from a 64-byte public key blob."
+  def from_public_key(public_key)
+
+  def from_public_key(<<enc_pub::binary-size(32), sig_pub::binary-size(32)>>) do
+    {:ok, %__MODULE__{enc_pub: enc_pub, sig_pub: sig_pub} |> update_hash()}
+  end
+
+  def from_public_key(public_key)
+      when is_binary(public_key) and byte_size(public_key) != @public_key_len,
+      do: {:error, :invalid_public_key}
+
+  def from_public_key(_public_key), do: {:error, :invalid_public_key}
 
   defp maybe_gen_keys(%__MODULE__{} = identity, false), do: identity
 

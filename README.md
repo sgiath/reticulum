@@ -79,6 +79,12 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - ratchet announcements are cached in memory and expire after this TTL.
 - persistence is currently memory-only; disk persistence lands with general runtime persistence.
 
+`[interfaces.<name>]` supports optional IFAC auth settings.
+
+- `ifac_netname` and/or `ifac_netkey` derive the shared IFAC identity for that interface.
+- `ifac_size_bits` controls truncated IFAC size in bits and must be a multiple of 8.
+- auth-enabled interfaces require IFAC-authenticated inbound frames and transmit authenticated frames by default.
+
 For imperative startup, pass `startup_lifecycle: YourModule` to
 `Reticulum.Node.start_link/1`. Lifecycle modules implement the
 `Reticulum.Node.StartupLifecycle` callbacks.
@@ -115,10 +121,17 @@ Inbound destinations only return proofs when `destination.proof_strategy` is set
 `Reticulum.Node.send_data/5` encrypts payloads for `destination: :single` and `destination: :group`
 when context is active data transport. To send unencrypted payloads, use `destination: :plain`.
 
+When both interfaces share IFAC auth config, request authenticated transport with `ifac: :auth`.
+
 ```elixir
 :ok =
   Node.send_data(Reticulum.Node.Example, :udp, destination_hash, "plain-payload",
     destination: :plain
+  )
+
+:ok =
+  Node.send_data(Reticulum.Node.Example, :udp, destination_hash, "auth-payload",
+    ifac: :auth
   )
 ```
 

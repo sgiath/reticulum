@@ -26,7 +26,10 @@ defmodule Reticulum.Bootstrap.ConfigTest do
             "listen_ip" => "127.0.0.1",
             "listen_port" => 42_424,
             "default_peer_ip" => [127, 0, 0, 1],
-            "default_peer_port" => 42_425
+            "default_peer_port" => 42_425,
+            "ifac_netname" => "mesh-alpha",
+            "ifac_netkey" => "phase7-secret",
+            "ifac_size_bits" => 128
           },
           "disabled" => %{
             "enabled" => false,
@@ -54,6 +57,9 @@ defmodule Reticulum.Bootstrap.ConfigTest do
       assert opts[:listen_port] == 42_424
       assert opts[:default_peer_ip] == {127, 0, 0, 1}
       assert opts[:default_peer_port] == 42_425
+      assert opts[:ifac_netname] == "mesh-alpha"
+      assert opts[:ifac_netkey] == "phase7-secret"
+      assert opts[:ifac_size] == 16
     end
 
     test "rejects unknown top-level section" do
@@ -73,6 +79,11 @@ defmodule Reticulum.Bootstrap.ConfigTest do
     test "rejects invalid interface type" do
       assert Config.new(%{"interfaces" => %{"link" => %{"type" => "tcp"}}}) ==
                {:error, {:unsupported_interface_type, :link, "tcp"}}
+    end
+
+    test "rejects invalid IFAC size bits" do
+      assert Config.new(%{"interfaces" => %{"link" => %{"type" => "udp", "ifac_size_bits" => 7}}}) ==
+               {:error, {:invalid_interface_config, :link, :invalid_ifac_size_bits}}
     end
 
     test "rejects invalid interface name" do

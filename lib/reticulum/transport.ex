@@ -153,13 +153,16 @@ defmodule Reticulum.Transport do
 
   @impl true
   def handle_call({:send_packet, interface_name, packet_or_raw, opts}, _from, state) do
-    with {:ok, raw} <- encode_packet(packet_or_raw),
-         :ok <- send_on_interface(state.node_name, interface_name, raw, opts) do
-      publish_outbound_packet(state, interface_name, raw)
-      {:reply, :ok, state}
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
-      other -> {:reply, other, state}
+    case transmit_outbound(state, interface_name, packet_or_raw, opts) do
+      {:ok, canonical_raw, transmitted_raw, ifac} ->
+        publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
+        {:reply, :ok, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+
+      other ->
+        {:reply, other, state}
     end
   end
 
@@ -172,11 +175,11 @@ defmodule Reticulum.Transport do
          {:ok, destination_record} <- fetch_destination(state_server, destination_hash),
          {:ok, packet} <- build_data_packet(destination_hash, payload, opts),
          {:ok, encrypted_packet} <- PacketCrypto.encrypt_outbound(packet, destination_record),
-         {:ok, raw} <- encode_packet(encrypted_packet),
-         :ok <- send_on_interface(state.node_name, interface_name, raw, opts) do
-      publish_outbound_packet(state, interface_name, raw)
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           transmit_outbound(state, interface_name, encrypted_packet, opts) do
+      publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
 
-      {reply, updated_state} = maybe_track_receipt(state, destination_hash, raw, opts)
+      {reply, updated_state} = maybe_track_receipt(state, destination_hash, canonical_raw, opts)
       {:reply, reply, updated_state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -194,9 +197,9 @@ defmodule Reticulum.Transport do
              requester_hash: requester_hash,
              request_tag: request_tag
            ),
-         {:ok, raw} <- encode_packet(packet),
-         :ok <- send_on_interface(state.node_name, interface_name, raw, opts) do
-      publish_outbound_packet(state, interface_name, raw)
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           transmit_outbound(state, interface_name, packet, opts) do
+      publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
 
       pending =
         Map.put(state.pending_path_requests, destination_hash, System.system_time(:second))
@@ -215,9 +218,9 @@ defmodule Reticulum.Transport do
       ) do
     with {:ok, local_destination} <- State.local_destination(state_server, destination_hash),
          {:ok, response_packet} <- Pathfinder.build_path_response_packet(local_destination, opts),
-         {:ok, response_raw} <- encode_packet(response_packet),
-         :ok <- send_on_interface(state.node_name, interface_name, response_raw, opts) do
-      publish_outbound_packet(state, interface_name, response_raw)
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           transmit_outbound(state, interface_name, response_packet, opts) do
+      publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
       {:reply, :ok, state}
     else
       :error -> {:reply, {:error, :unknown_local_destination}, state}
@@ -274,9 +277,12 @@ defmodule Reticulum.Transport do
 
   defp process_inbound_frame(%{payload: raw} = frame, %{state_server: state_server} = state)
        when is_binary(raw) do
-    with {:ok, packet_hash_full} <- Packet.hash(raw),
-         {:ok, packet_hash} <- Packet.truncated_hash(raw),
-         {:ok, packet} <- decode_packet(raw) do
+    with {:ok, %{payload: canonical_raw, ifac: ifac}} <-
+           InterfaceSupervisor.normalize_inbound(state.node_name, frame.interface, raw),
+         {:ok, packet_hash_full} <- Packet.hash(canonical_raw),
+         {:ok, packet_hash} <- Packet.truncated_hash(canonical_raw),
+         {:ok, packet} <- decode_packet(canonical_raw) do
+      packet = %{packet | ifac: ifac}
       duplicate = State.remember_packet_hash(state_server, packet_hash) == :existing
 
       publish_inbound_packet(state, frame, raw, packet, packet_hash, duplicate)
@@ -285,8 +291,14 @@ defmodule Reticulum.Transport do
         state
       else
         state
-        |> route_control_packets(frame, raw, packet, packet_hash, packet_hash_full)
-        |> dispatch_to_local_destination(frame, raw, packet, packet_hash, packet_hash_full)
+        |> route_control_packets(frame, canonical_raw, packet, packet_hash, packet_hash_full)
+        |> dispatch_to_local_destination(
+          frame,
+          canonical_raw,
+          packet,
+          packet_hash,
+          packet_hash_full
+        )
       end
     else
       {:error, reason} ->
@@ -345,9 +357,9 @@ defmodule Reticulum.Transport do
          {:ok, local_destination} <-
            State.local_destination(state.state_server, path_request.destination_hash),
          {:ok, response_packet} <- Pathfinder.build_path_response_packet(local_destination),
-         {:ok, response_raw} <- encode_packet(response_packet),
-         :ok <- send_path_response(state, frame, response_raw) do
-      publish_outbound_packet(state, frame.interface, response_raw)
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           send_path_response(state, frame, response_packet) do
+      publish_outbound_packet(state, frame.interface, canonical_raw, transmitted_raw, ifac)
       state
     else
       _ ->
@@ -395,12 +407,12 @@ defmodule Reticulum.Transport do
   defp route_control_packets(state, _frame, _raw, _packet, _packet_hash, _packet_hash_full),
     do: state
 
-  defp send_path_response(state, %{interface: interface, endpoint: {ip, port}}, raw) do
-    InterfaceSupervisor.send_frame(state.node_name, interface, raw, ip: ip, port: port)
+  defp send_path_response(state, %{interface: interface, endpoint: {ip, port}}, packet_or_raw) do
+    transmit_outbound(state, interface, packet_or_raw, ip: ip, port: port)
   end
 
-  defp send_path_response(state, %{interface: interface}, raw) do
-    InterfaceSupervisor.send_frame(state.node_name, interface, raw, [])
+  defp send_path_response(state, %{interface: interface}, packet_or_raw) do
+    transmit_outbound(state, interface, packet_or_raw, [])
   end
 
   defp dispatch_to_local_destination(
@@ -483,9 +495,9 @@ defmodule Reticulum.Transport do
            Proofs.build_proof_packet(packet_hash_full, identity,
              implicit: state.use_implicit_proof
            ),
-         {:ok, raw} <- encode_packet(proof_packet),
-         :ok <- send_path_response(state, frame, raw) do
-      publish_outbound_packet(state, frame.interface, raw)
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           send_path_response(state, frame, proof_packet) do
+      publish_outbound_packet(state, frame.interface, canonical_raw, transmitted_raw, ifac)
 
       Observability.emit(
         [:transport, :proof, :sent],
@@ -730,14 +742,42 @@ defmodule Reticulum.Transport do
       Keyword.drop(opts, [
         :requester_hash,
         :request_tag,
+        :ifac,
         :track_receipt,
         :on_delivery,
         :on_timeout,
         :receipt_timeout_seconds
       ])
 
-    InterfaceSupervisor.send_frame(node_name, interface_name, raw, send_opts)
+    with {:ok, %{payload: payload, ifac: ifac}} <-
+           InterfaceSupervisor.prepare_outbound(node_name, interface_name, raw, opts),
+         :ok <- InterfaceSupervisor.send_frame(node_name, interface_name, payload, send_opts) do
+      {:ok, %{payload: payload, ifac: ifac}}
+    end
   end
+
+  defp transmit_outbound(state, interface_name, packet_or_raw, opts) do
+    with {:ok, canonical_raw} <- canonical_outbound_raw(packet_or_raw),
+         {:ok, %{payload: transmitted_raw, ifac: ifac}} <-
+           send_on_interface(
+             state.node_name,
+             interface_name,
+             canonical_raw,
+             outbound_ifac_opts(packet_or_raw, opts)
+           ) do
+      {:ok, canonical_raw, transmitted_raw, ifac}
+    end
+  end
+
+  defp canonical_outbound_raw(%Packet{} = packet) do
+    encode_packet(%{packet | ifac: :open})
+  end
+
+  defp canonical_outbound_raw(raw) when is_binary(raw), do: {:ok, raw}
+  defp canonical_outbound_raw(_packet_or_raw), do: {:error, :invalid_packet}
+
+  defp outbound_ifac_opts(%Packet{ifac: :auth}, opts), do: Keyword.put_new(opts, :ifac, :auth)
+  defp outbound_ifac_opts(_packet_or_raw, opts), do: opts
 
   defp encode_packet(%Packet{} = packet), do: {:ok, Packet.encode(packet)}
   defp encode_packet(raw) when is_binary(raw), do: {:ok, raw}
@@ -795,21 +835,23 @@ defmodule Reticulum.Transport do
   defp publish_outbound_packet(
          %{state_server: state_server, node_name: node_name},
          interface,
-         raw
+         canonical_raw,
+         transmitted_raw,
+         ifac
        ) do
-    case decode_packet(raw) do
+    case decode_packet(canonical_raw) do
       {:ok, packet} ->
-        {:ok, packet_hash} = Packet.truncated_hash(raw)
+        {:ok, packet_hash} = Packet.truncated_hash(canonical_raw)
 
         State.publish_packet(state_server, %{
           interface: interface,
-          packet: packet,
+          packet: %{packet | ifac: ifac},
           packet_hash: packet_hash,
           duplicate: false,
           endpoint: nil,
           node: node_name,
           reason: nil,
-          raw: raw,
+          raw: transmitted_raw,
           direction: :outbound,
           at: System.system_time(:millisecond)
         })

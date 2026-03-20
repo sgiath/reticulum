@@ -31,6 +31,9 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       type = "udp"
       listen_ip = "127.0.0.1"
       listen_port = #{listen_port}
+      ifac_netname = "mesh-alpha"
+      ifac_netkey = "phase7-secret"
+      ifac_size_bits = 128
       """)
 
     assert {:ok, pid} = Node.start_from_config(config_path, name: node_name)
@@ -52,6 +55,10 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert interface.module == Reticulum.Interface.UDP
     assert interface.meta.listen_ip == @loopback
     assert interface.meta.listen_port == listen_port
+    assert interface.meta.ifac == :auth
+    assert interface.meta.ifac_size == 16
+    assert interface.meta.ifac_netname == "mesh-alpha"
+    refute Map.has_key?(interface.meta, :ifac_netkey)
   end
 
   test "supports config-driven announce path between nodes" do

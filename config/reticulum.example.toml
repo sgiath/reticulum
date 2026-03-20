@@ -21,6 +21,11 @@ listen_ip = "127.0.0.1"
 listen_port = 43001
 default_peer_ip = "127.0.0.1"
 default_peer_port = 43002
+# Optional authenticated IFAC transport.
+# Enable on all peers that share this interface segment.
+# ifac_netname = "mesh-alpha"
+# ifac_netkey = "change-me"
+# ifac_size_bits = 128
 
 [interfaces.backup]
 type = "udp"

@@ -64,4 +64,30 @@ defmodule Reticulum.Interface.Supervisor do
         other
     end
   end
+
+  @doc "Prepares a transport payload for outbound transmission on `name`."
+  def prepare_outbound(node_name, name, payload, opts \\ [])
+      when is_atom(node_name) and is_atom(name) and is_binary(payload) and is_list(opts) do
+    case fetch_interface(node_name, name) do
+      {:ok, %{pid: pid, module: module}} -> module.prepare_outbound(pid, payload, opts)
+      :error -> {:error, :unknown_interface}
+      other -> other
+    end
+  end
+
+  @doc "Normalizes an inbound frame payload from interface `name`."
+  def normalize_inbound(node_name, name, payload)
+      when is_atom(node_name) and is_atom(name) and is_binary(payload) do
+    case fetch_interface(node_name, name) do
+      {:ok, %{pid: pid, module: module}} -> module.normalize_inbound(pid, payload)
+      :error -> {:error, :unknown_interface}
+      other -> other
+    end
+  end
+
+  defp fetch_interface(node_name, name) do
+    node_name
+    |> Node.state_server()
+    |> State.interface(name)
+  end
 end

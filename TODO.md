@@ -45,16 +45,20 @@ Implemented in commit `a407dea`.
 
 ## Phase 6 - Advanced Destination Crypto
 
-- [ ] Implement group destination crypto flow (`:group`) and validation paths.
-- [ ] Add destination ratchet lifecycle (ingest, persist policy, key selection, expiry).
-- [ ] Keep Phase 6 ratchet persistence memory-only; wire disk persistence when general runtime persistence lands.
-- [ ] Add reference-vector coverage for encrypted data edge cases.
+Implemented in commit `d4064c5`.
+
+- [x] Implement group destination crypto flow (`:group`) and validation paths.
+- [x] Add destination ratchet lifecycle (ingest, persist policy, key selection, expiry).
+- [x] Keep Phase 6 ratchet persistence memory-only; wire disk persistence when general runtime persistence lands.
+- [x] Add reference-vector coverage for encrypted data edge cases.
 
 ## Phase 7 - IFAC Auth End-to-End
 
-- [ ] Validate authenticated IFAC (`ifac: :auth`) packet path end-to-end.
-- [ ] Add targeted protocol-path tests for IFAC auth behavior.
-- [ ] Update `config/reticulum.example.toml` + README config section for IFAC auth options.
+Implemented in working tree.
+
+- [x] Validate authenticated IFAC (`ifac: :auth`) packet path end-to-end.
+- [x] Add targeted protocol-path tests for IFAC auth behavior.
+- [x] Update `config/reticulum.example.toml` + README config section for IFAC auth options.
 
 ## Phase 8 - Routing Core
 

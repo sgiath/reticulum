@@ -17,6 +17,9 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       type = "udp"
       listen_ip = "127.0.0.1"
       listen_port = 43000
+      ifac_netname = "mesh-alpha"
+      ifac_netkey = "phase7-secret"
+      ifac_size_bits = 128
       """)
 
     assert {:ok, bootstrap} = TOML.parse_file(config_path)
@@ -24,7 +27,10 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
     assert bootstrap.node_opts[:use_implicit_proof] == false
     assert bootstrap.node_opts[:startup_mode] == :warm_restore
     assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
-    assert [%{name: :link, type: :udp}] = bootstrap.interfaces
+    assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
+    assert opts[:ifac_netname] == "mesh-alpha"
+    assert opts[:ifac_netkey] == "phase7-secret"
+    assert opts[:ifac_size] == 16
   end
 
   test "returns not found error when config path does not exist" do

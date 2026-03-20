@@ -6,11 +6,13 @@ defmodule Reticulum.Interface.UDP do
 
   @behaviour Reticulum.Interface
 
+  alias Reticulum.Interface.IFAC
   alias Reticulum.Node.State
 
   @type ip_address :: :inet.ip_address()
 
   @type state :: %{
+          ifac: map() | nil,
           socket: port(),
           name: atom(),
           node_name: atom(),
@@ -46,6 +48,16 @@ defmodule Reticulum.Interface.UDP do
   end
 
   @impl true
+  def prepare_outbound(server, payload, opts \\ []) when is_binary(payload) and is_list(opts) do
+    GenServer.call(server, {:prepare_outbound, payload, opts})
+  end
+
+  @impl true
+  def normalize_inbound(server, payload) when is_binary(payload) do
+    GenServer.call(server, {:normalize_inbound, payload})
+  end
+
+  @impl true
   def init(opts) do
     with {:ok, base_state} <- parse_opts(opts),
          {:ok, socket, listen_port} <- open_socket(base_state, opts),
@@ -66,6 +78,14 @@ defmodule Reticulum.Interface.UDP do
       {:error, reason} -> {:reply, {:error, reason}, state}
       {:error, reason, _rest} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  def handle_call({:prepare_outbound, payload, opts}, _from, state) do
+    {:reply, IFAC.prepare_outbound(payload, state.ifac, opts), state}
+  end
+
+  def handle_call({:normalize_inbound, payload}, _from, state) do
+    {:reply, IFAC.normalize_inbound(payload, state.ifac), state}
   end
 
   @impl true
@@ -96,9 +116,11 @@ defmodule Reticulum.Interface.UDP do
          {:ok, default_peer_ip} <-
            validate_optional_ip(Keyword.get(opts, :default_peer_ip, nil), :default_peer_ip),
          {:ok, default_peer_port} <-
-           validate_optional_port(Keyword.get(opts, :default_peer_port, nil), :default_peer_port) do
+           validate_optional_port(Keyword.get(opts, :default_peer_port, nil), :default_peer_port),
+         {:ok, ifac} <- IFAC.new(opts) do
       {:ok,
        %{
+         ifac: ifac,
          socket: nil,
          name: name,
          node_name: node_name,
@@ -141,12 +163,14 @@ defmodule Reticulum.Interface.UDP do
   end
 
   defp register_interface(base_state, listen_port) do
-    meta = %{
-      listen_ip: base_state.listen_ip,
-      listen_port: listen_port,
-      default_peer_ip: base_state.default_peer_ip,
-      default_peer_port: base_state.default_peer_port
-    }
+    meta =
+      %{
+        listen_ip: base_state.listen_ip,
+        listen_port: listen_port,
+        default_peer_ip: base_state.default_peer_ip,
+        default_peer_port: base_state.default_peer_port
+      }
+      |> Map.merge(IFAC.summary(base_state.ifac))
 
     State.register_interface(
       base_state.state_server,

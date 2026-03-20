@@ -52,7 +52,10 @@ defmodule Reticulum.Bootstrap.Config do
     "listen_ip",
     "listen_port",
     "default_peer_ip",
-    "default_peer_port"
+    "default_peer_port",
+    "ifac_netname",
+    "ifac_netkey",
+    "ifac_size_bits"
   ]
 
   @max_interface_name_length 64
@@ -214,13 +217,22 @@ defmodule Reticulum.Bootstrap.Config do
              "default_peer_port",
              :invalid_default_peer_port,
              false
-           ) do
+           ),
+         {:ok, ifac_netname} <-
+           maybe_parse_string(interface_config, "ifac_netname", :invalid_ifac_netname),
+         {:ok, ifac_netkey} <-
+           maybe_parse_string(interface_config, "ifac_netkey", :invalid_ifac_netkey),
+         {:ok, ifac_size} <-
+           maybe_parse_ifac_size_bits(interface_config, "ifac_size_bits", :invalid_ifac_size_bits) do
       {:ok,
        []
        |> maybe_put(:listen_ip, listen_ip)
        |> maybe_put(:listen_port, listen_port)
        |> maybe_put(:default_peer_ip, peer_ip)
-       |> maybe_put(:default_peer_port, peer_port)}
+       |> maybe_put(:default_peer_port, peer_port)
+       |> maybe_put(:ifac_netname, ifac_netname)
+       |> maybe_put(:ifac_netkey, ifac_netkey)
+       |> maybe_put(:ifac_size, ifac_size)}
     else
       {:error, reason} ->
         {:error, {:invalid_interface_config, interface_name, reason}}
@@ -279,6 +291,33 @@ defmodule Reticulum.Bootstrap.Config do
        do: :ok
 
   defp parse_port(_value, _allow_zero?), do: :error
+
+  defp maybe_parse_string(interface_config, key, error) do
+    case Map.fetch(interface_config, key) do
+      :error ->
+        {:ok, :not_set}
+
+      {:ok, value} when is_binary(value) and value != "" ->
+        {:ok, value}
+
+      {:ok, _value} ->
+        {:error, error}
+    end
+  end
+
+  defp maybe_parse_ifac_size_bits(interface_config, key, error) do
+    case Map.fetch(interface_config, key) do
+      :error ->
+        {:ok, :not_set}
+
+      {:ok, value}
+      when is_integer(value) and value >= 8 and value <= 512 and rem(value, 8) == 0 ->
+        {:ok, div(value, 8)}
+
+      {:ok, _value} ->
+        {:error, error}
+    end
+  end
 
   defp maybe_put(keyword, _key, :not_set), do: keyword
   defp maybe_put(keyword, key, value), do: Keyword.put(keyword, key, value)

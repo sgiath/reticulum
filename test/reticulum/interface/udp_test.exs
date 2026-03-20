@@ -37,6 +37,27 @@ defmodule Reticulum.Interface.UDPTest do
     assert interface.module == Reticulum.Interface.UDP
     assert interface.meta.listen_ip == @loopback
     assert interface.meta.listen_port == listen_port
+    assert interface.meta.ifac == :open
+  end
+
+  test "summarizes IFAC auth config without exposing secrets", %{node_name: node_name} do
+    listen_port = free_udp_port()
+
+    assert {:ok, _pid} =
+             Node.start_udp_interface(node_name,
+               name: :udp_a,
+               listen_ip: @loopback,
+               listen_port: listen_port,
+               ifac_netname: "mesh-alpha",
+               ifac_netkey: "phase7-secret",
+               ifac_size: 16
+             )
+
+    assert {:ok, [interface]} = Node.interfaces(node_name)
+    assert interface.meta.ifac == :auth
+    assert interface.meta.ifac_size == 16
+    assert interface.meta.ifac_netname == "mesh-alpha"
+    refute Map.has_key?(interface.meta, :ifac_netkey)
   end
 
   test "sends raw frames between two local UDP interfaces", %{node_name: node_name} do

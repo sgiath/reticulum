@@ -305,6 +305,122 @@ defmodule Reticulum.Transport.RuntimeTest do
     refute_receive {:reticulum, :destination_packet, %{destination_hash: ^destination_hash}}, 250
   end
 
+  test "validates authenticated IFAC packet path end-to-end", %{node_name: node_name} do
+    reconfigure_ifac_interfaces!(node_name,
+      udp_a: [ifac_netname: "runtime-mesh", ifac_netkey: "phase7-secret", ifac_size: 16],
+      udp_b: [ifac_netname: "runtime-mesh", ifac_netkey: "phase7-secret", ifac_size: 16]
+    )
+
+    identity = Identity.new()
+    {:ok, destination} = Destination.new(:in, :single, "runtime", identity, ["ifac-auth"])
+    payload = "phase7-authenticated"
+
+    assert :ok = Node.register_local_announce_destination(node_name, destination, self())
+
+    assert :ok =
+             Node.put_destination(
+               node_name,
+               destination.hash,
+               identity.enc_pub <> identity.sig_pub,
+               nil
+             )
+
+    assert :ok = Node.send_data(node_name, :udp_a, destination.hash, payload, ifac: :auth)
+
+    assert_receive {:reticulum, :packet,
+                    %{
+                      direction: :outbound,
+                      raw: outbound_raw,
+                      packet: %Packet{} = outbound_packet
+                    }},
+                   1_000
+
+    assert outbound_packet.ifac == :auth
+    assert outbound_raw != Packet.encode(%{outbound_packet | ifac: :open})
+    assert byte_size(outbound_raw) > byte_size(Packet.encode(%{outbound_packet | ifac: :open}))
+
+    assert_receive {:reticulum, :packet,
+                    %{
+                      direction: :inbound,
+                      interface: :udp_b,
+                      duplicate: false,
+                      packet: %Packet{ifac: :auth}
+                    }},
+                   1_000
+
+    assert_receive {:reticulum, :destination_packet,
+                    %{
+                      destination_hash: destination_hash,
+                      packet: %Packet{ifac: :auth, data: ^payload}
+                    }},
+                   1_000
+
+    assert destination_hash == destination.hash
+  end
+
+  test "publishes decode error when auth-enabled interface receives open frame", %{
+    node_name: node_name
+  } do
+    reconfigure_ifac_interfaces!(node_name,
+      udp_a: [ifac_netname: "runtime-mesh", ifac_netkey: "phase7-secret"],
+      udp_b: [ifac_netname: "runtime-mesh", ifac_netkey: "phase7-secret"]
+    )
+
+    raw =
+      %Packet{
+        ifac: :open,
+        propagation: :broadcast,
+        destination: :plain,
+        type: :data,
+        hops: 0,
+        addresses: [:crypto.strong_rand_bytes(16)],
+        context: 0,
+        data: <<1, 2, 3>>
+      }
+      |> Packet.encode()
+
+    assert :ok = Node.send_frame(node_name, :udp_a, raw)
+
+    assert_receive {:reticulum, :packet,
+                    %{
+                      direction: :inbound,
+                      interface: :udp_b,
+                      packet: nil,
+                      reason: :missing_ifac_auth
+                    }},
+                   1_000
+  end
+
+  test "publishes decode error when IFAC auth validation fails", %{node_name: node_name} do
+    reconfigure_ifac_interfaces!(node_name,
+      udp_a: [ifac_netname: "runtime-mesh", ifac_netkey: "phase7-secret"],
+      udp_b: [ifac_netname: "runtime-mesh", ifac_netkey: "wrong-secret"]
+    )
+
+    destination_hash = :crypto.strong_rand_bytes(16)
+    payload = "ifac-invalid"
+
+    assert :ok =
+             Node.put_destination(node_name, destination_hash, :crypto.strong_rand_bytes(64), nil)
+
+    assert :ok =
+             Node.send_data(node_name, :udp_a, destination_hash, payload,
+               destination: :plain,
+               ifac: :auth
+             )
+
+    assert_receive {:reticulum, :packet,
+                    %{
+                      direction: :inbound,
+                      interface: :udp_b,
+                      packet: nil,
+                      reason: :invalid_ifac_auth
+                    }},
+                   1_000
+
+    refute_receive {:reticulum, :destination_packet, _event}, 250
+  end
+
   defp receive_inbound_events(target_count, acc) when length(acc) >= target_count,
     do: Enum.reverse(acc)
 
@@ -319,6 +435,44 @@ defmodule Reticulum.Transport.RuntimeTest do
       1_000 ->
         Enum.reverse(acc)
     end
+  end
+
+  defp reconfigure_ifac_interfaces!(node_name, configs) do
+    :ok = Node.stop_interface(node_name, :udp_a)
+    :ok = Node.stop_interface(node_name, :udp_b)
+
+    port_a = free_udp_port()
+    port_b = free_udp_port()
+
+    assert {:ok, _pid} =
+             Node.start_udp_interface(
+               node_name,
+               Keyword.merge(
+                 [
+                   name: :udp_a,
+                   listen_ip: @loopback,
+                   listen_port: port_a,
+                   default_peer_ip: @loopback,
+                   default_peer_port: port_b
+                 ],
+                 Keyword.fetch!(configs, :udp_a)
+               )
+             )
+
+    assert {:ok, _pid} =
+             Node.start_udp_interface(
+               node_name,
+               Keyword.merge(
+                 [
+                   name: :udp_b,
+                   listen_ip: @loopback,
+                   listen_port: port_b,
+                   default_peer_ip: @loopback,
+                   default_peer_port: port_a
+                 ],
+                 Keyword.fetch!(configs, :udp_b)
+               )
+             )
   end
 
   defp free_udp_port do

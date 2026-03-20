@@ -22,6 +22,93 @@ def _print_error(message):
     print(message, file=sys.stderr)
 
 
+def _ifac_bytes(value):
+    if value in (None, "", "-"):
+        return None
+    return value.encode("utf-8")
+
+
+def _ifac_state(netname, netkey, size_bits):
+    origin = b""
+
+    if netname is not None:
+        origin += RNS.Identity.full_hash(netname)
+
+    if netkey is not None:
+        origin += RNS.Identity.full_hash(netkey)
+
+    origin_hash = RNS.Identity.full_hash(origin)
+    ifac_key = RNS.Cryptography.hkdf(
+        length=64,
+        derive_from=origin_hash,
+        salt=RNS.Reticulum.IFAC_SALT,
+        context=None,
+    )
+
+    return {
+        "identity": RNS.Identity.from_bytes(ifac_key),
+        "ifac_key": ifac_key,
+        "ifac_size": size_bits // 8,
+    }
+
+
+def _ifac_wrap(raw, state):
+    ifac = state["identity"].sign(raw)[-state["ifac_size"] :]
+    mask = RNS.Cryptography.hkdf(
+        length=len(raw) + state["ifac_size"],
+        derive_from=ifac,
+        salt=state["ifac_key"],
+        context=None,
+    )
+
+    new_header = bytes([raw[0] | 0x80, raw[1]])
+    new_raw = new_header + ifac + raw[2:]
+    masked_raw = b""
+
+    for i, byte in enumerate(new_raw):
+        if i == 0:
+            masked_raw += bytes([byte ^ mask[i] | 0x80])
+        elif i == 1 or i > state["ifac_size"] + 1:
+            masked_raw += bytes([byte ^ mask[i]])
+        else:
+            masked_raw += bytes([byte])
+
+    return masked_raw
+
+
+def _ifac_unwrap(raw, state):
+    if raw[0] & 0x80 != 0x80:
+        return None
+
+    if len(raw) <= 2 + state["ifac_size"]:
+        return None
+
+    ifac = raw[2 : 2 + state["ifac_size"]]
+    mask = RNS.Cryptography.hkdf(
+        length=len(raw),
+        derive_from=ifac,
+        salt=state["ifac_key"],
+        context=None,
+    )
+
+    unmasked_raw = b""
+
+    for i, byte in enumerate(raw):
+        if i <= 1 or i > state["ifac_size"] + 1:
+            unmasked_raw += bytes([byte ^ mask[i]])
+        else:
+            unmasked_raw += bytes([byte])
+
+    new_header = bytes([unmasked_raw[0] & 0x7F, unmasked_raw[1]])
+    new_raw = new_header + unmasked_raw[2 + state["ifac_size"] :]
+    expected_ifac = state["identity"].sign(new_raw)[-state["ifac_size"] :]
+
+    if ifac == expected_ifac:
+        return new_raw
+
+    return None
+
+
 def hkdf_cmd(args):
     if len(args) != 4:
         raise ValueError("hkdf expects 4 arguments")
@@ -335,6 +422,31 @@ def packet_malformed_batch_cmd(args):
         )
 
 
+def ifac_wrap_cmd(args):
+    if len(args) != 4:
+        raise ValueError("ifac_wrap expects 4 arguments")
+
+    raw = bytes.fromhex(args[0])
+    netname = _ifac_bytes(args[1])
+    netkey = _ifac_bytes(args[2])
+    size_bits = int(args[3])
+    state = _ifac_state(netname, netkey, size_bits)
+    print(_ifac_wrap(raw, state).hex())
+
+
+def ifac_unwrap_cmd(args):
+    if len(args) != 4:
+        raise ValueError("ifac_unwrap expects 4 arguments")
+
+    raw = bytes.fromhex(args[0])
+    netname = _ifac_bytes(args[1])
+    netkey = _ifac_bytes(args[2])
+    size_bits = int(args[3])
+    state = _ifac_state(netname, netkey, size_bits)
+    unwrapped = _ifac_unwrap(raw, state)
+    print("none" if unwrapped is None else unwrapped.hex())
+
+
 COMMANDS = {
     "hkdf": hkdf_cmd,
     "token_encrypt_fixed_iv": token_encrypt_fixed_iv_cmd,
@@ -351,6 +463,8 @@ COMMANDS = {
     "packet_unpack": packet_unpack_cmd,
     "packet_hash": packet_hash_cmd,
     "packet_malformed_batch": packet_malformed_batch_cmd,
+    "ifac_wrap": ifac_wrap_cmd,
+    "ifac_unwrap": ifac_unwrap_cmd,
 }
 
 

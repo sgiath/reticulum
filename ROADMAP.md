@@ -21,7 +21,8 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Pipe/stdio interface.
 - [ ] Automatic peer-discovery interface behavior (AutoInterface-style multicast peering).
 - [ ] External pluggable interface loading.
-- [ ] Interface authentication and segmentation controls (IFAC key material).
+- [x] UDP IFAC authentication controls (IFAC key material and authenticated frame processing).
+- [ ] Interface segmentation controls and IFAC parity across additional interface types.
 - [ ] Interface mode semantics parity (`full`, `point_to_point`, `access_point`, `roaming`, `boundary`, `gateway`).
 - [ ] Per-interface queue/backpressure/rate-limiting metadata.
 - [ ] Keep `config/reticulum.example.toml` + README config docs updated when new interface types/options land.
@@ -37,9 +38,9 @@ Status below is based on what is currently implemented in this repository.
 - [x] Local destination callbacks and request/response hook registration.
 - [x] Delivery receipt tracking with explicit proof validation.
 - [x] High-level messaging send/announce API wrappers.
-- [ ] Payload encryption/decryption for destination packet data flows (`:single`/`:group`).
-- [ ] Implicit proof behavior and `Destination.proof_strategy` semantics.
-- [ ] Full authenticated IFAC (`ifac: :auth`) processing path.
+- [x] Payload encryption/decryption for destination packet data flows (`:single`/`:group`).
+- [x] Implicit proof behavior and `Destination.proof_strategy` semantics.
+- [x] Full authenticated IFAC (`ifac: :auth`) processing path.
 - [ ] Multi-hop forwarding plane and route selection policy.
 - [ ] Transport control-plane parity (tunnel synthesis, blackhole handling, remote-management packet classes).
 - [ ] Announce queueing/ingress-control policy parity (caps, hold/release, stale announce handling).
@@ -62,8 +63,8 @@ Status below is based on what is currently implemented in this repository.
 - [ ] Persistent storage parity for operational state (known-destination metadata, packet/announce hash state, ratchet state).
 - [ ] Ratchet persistence is memory-only in Phase 6; move to disk-backed persistence alongside general runtime persistence.
 - [ ] Warm-start restore policy from persisted runtime state.
-- [ ] Config-file driven bootstrap (instead of imperative-only startup).
-- [ ] `transport_enabled` operational behavior.
+- [x] Config-file driven bootstrap (instead of imperative-only startup).
+- [x] `transport_enabled` operational behavior.
 - [ ] `shared_instance` parity (ownership + local client IPC semantics and runtime service surface).
 - [ ] Keep `config/reticulum.example.toml` + README config docs updated when startup/runtime config knobs change.
 - [ ] Diagnostics/status snapshots and bounded-memory policies.
