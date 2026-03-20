@@ -79,6 +79,15 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - ratchet announcements are cached in memory and expire after this TTL.
 - persistence is currently memory-only; disk persistence lands with general runtime persistence.
 
+`[node]` also supports routing-core controls.
+
+- `routing_max_hops` caps transit forwarding, announce rebroadcasts, and forwarded path requests.
+- `announce_forwarding = true | false` enables or disables rebroadcasting remote announces onto other interfaces.
+- `path_request_forwarding = true | false` enables or disables forwarding remote path requests onto other interfaces.
+
+Route selection currently prefers healthy interfaces first, then lower hop counts, then fresher path updates.
+Interface health is intentionally minimal in this phase and only requires the interface process to still be alive.
+
 `[interfaces.<name>]` supports optional IFAC auth settings.
 
 - `ifac_netname` and/or `ifac_netkey` derive the shared IFAC identity for that interface.

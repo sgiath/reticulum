@@ -11,6 +11,9 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       transport_enabled = true
       use_implicit_proof = false
       startup_mode = "warm_restore"
+      routing_max_hops = 8
+      announce_forwarding = false
+      path_request_forwarding = false
       ratchet_expiry_seconds = 900
 
       [interfaces.link]
@@ -26,6 +29,9 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
     assert bootstrap.node_opts[:transport_enabled] == true
     assert bootstrap.node_opts[:use_implicit_proof] == false
     assert bootstrap.node_opts[:startup_mode] == :warm_restore
+    assert bootstrap.node_opts[:routing_max_hops] == 8
+    assert bootstrap.node_opts[:announce_forwarding] == false
+    assert bootstrap.node_opts[:path_request_forwarding] == false
     assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
     assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
     assert opts[:ifac_netname] == "mesh-alpha"

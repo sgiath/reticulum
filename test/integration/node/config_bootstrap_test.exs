@@ -23,6 +23,9 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       startup_mode = "cold"
       path_ttl_seconds = 120
       path_gc_interval_seconds = 2
+      routing_max_hops = 8
+      announce_forwarding = false
+      path_request_forwarding = false
       receipt_timeout_seconds = 8
       receipt_retention_seconds = 20
       ratchet_expiry_seconds = 900
@@ -46,6 +49,9 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert config.startup_mode == :cold
     assert config.path_ttl_seconds == 120
     assert config.path_gc_interval_seconds == 2
+    assert config.routing_max_hops == 8
+    assert config.announce_forwarding == false
+    assert config.path_request_forwarding == false
     assert config.receipt_timeout_seconds == 8
     assert config.receipt_retention_seconds == 20
     assert config.ratchet_expiry_seconds == 900

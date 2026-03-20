@@ -22,6 +22,9 @@ defmodule Reticulum.Node.Config do
           startup_lifecycle: module(),
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
+          routing_max_hops: pos_integer(),
+          announce_forwarding: boolean(),
+          path_request_forwarding: boolean(),
           receipt_timeout_seconds: pos_integer(),
           receipt_retention_seconds: pos_integer(),
           ratchet_expiry_seconds: pos_integer()
@@ -37,6 +40,9 @@ defmodule Reticulum.Node.Config do
     :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
+    :routing_max_hops,
+    :announce_forwarding,
+    :path_request_forwarding,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -51,6 +57,9 @@ defmodule Reticulum.Node.Config do
     :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
+    :routing_max_hops,
+    :announce_forwarding,
+    :path_request_forwarding,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -82,6 +91,21 @@ defmodule Reticulum.Node.Config do
              Keyword.get(opts, :path_gc_interval_seconds, 5),
              :path_gc_interval_seconds
            ),
+         {:ok, routing_max_hops} <-
+           validate_positive_integer(
+             Keyword.get(opts, :routing_max_hops, 128),
+             :routing_max_hops
+           ),
+         {:ok, announce_forwarding} <-
+           validate_boolean(
+             Keyword.get(opts, :announce_forwarding, true),
+             :announce_forwarding
+           ),
+         {:ok, path_request_forwarding} <-
+           validate_boolean(
+             Keyword.get(opts, :path_request_forwarding, true),
+             :path_request_forwarding
+           ),
          {:ok, receipt_timeout_seconds} <-
            validate_positive_integer(
              Keyword.get(opts, :receipt_timeout_seconds, 10),
@@ -108,6 +132,9 @@ defmodule Reticulum.Node.Config do
          startup_lifecycle: startup_lifecycle,
          path_ttl_seconds: path_ttl_seconds,
          path_gc_interval_seconds: path_gc_interval_seconds,
+         routing_max_hops: routing_max_hops,
+         announce_forwarding: announce_forwarding,
+         path_request_forwarding: path_request_forwarding,
          receipt_timeout_seconds: receipt_timeout_seconds,
          receipt_retention_seconds: receipt_retention_seconds,
          ratchet_expiry_seconds: ratchet_expiry_seconds
@@ -132,6 +159,9 @@ defmodule Reticulum.Node.Config do
             :startup_lifecycle,
             :path_ttl_seconds,
             :path_gc_interval_seconds,
+            :routing_max_hops,
+            :announce_forwarding,
+            :path_request_forwarding,
             :receipt_timeout_seconds,
             :receipt_retention_seconds,
             :ratchet_expiry_seconds
@@ -157,6 +187,10 @@ defmodule Reticulum.Node.Config do
   defp validate_boolean(_value, :transport_enabled), do: {:error, :invalid_transport_enabled}
   defp validate_boolean(_value, :use_implicit_proof), do: {:error, :invalid_use_implicit_proof}
   defp validate_boolean(_value, :shared_instance), do: {:error, :invalid_shared_instance}
+  defp validate_boolean(_value, :announce_forwarding), do: {:error, :invalid_announce_forwarding}
+
+  defp validate_boolean(_value, :path_request_forwarding),
+    do: {:error, :invalid_path_request_forwarding}
 
   defp validate_startup_mode(:cold), do: {:ok, :cold}
   defp validate_startup_mode(:warm_restore), do: {:ok, :warm_restore}
@@ -183,6 +217,9 @@ defmodule Reticulum.Node.Config do
 
   defp validate_positive_integer(_value, :path_gc_interval_seconds),
     do: {:error, :invalid_path_gc_interval_seconds}
+
+  defp validate_positive_integer(_value, :routing_max_hops),
+    do: {:error, :invalid_routing_max_hops}
 
   defp validate_positive_integer(_value, :receipt_timeout_seconds),
     do: {:error, :invalid_receipt_timeout_seconds}

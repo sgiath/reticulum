@@ -19,6 +19,9 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
       assert config.path_ttl_seconds == 300
       assert config.path_gc_interval_seconds == 5
+      assert config.routing_max_hops == 128
+      assert config.announce_forwarding == true
+      assert config.path_request_forwarding == true
       assert config.receipt_timeout_seconds == 10
       assert config.receipt_retention_seconds == 60
       assert config.ratchet_expiry_seconds == 2_592_000
@@ -49,6 +52,9 @@ defmodule Reticulum.Node.RuntimeTest do
            startup_lifecycle: Reticulum.Node.StartupLifecycle.Default,
            path_ttl_seconds: 120,
            path_gc_interval_seconds: 2,
+           routing_max_hops: 8,
+           announce_forwarding: false,
+           path_request_forwarding: false,
            receipt_timeout_seconds: 8,
            receipt_retention_seconds: 20,
            ratchet_expiry_seconds: 900}
@@ -66,6 +72,9 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.startup_lifecycle == Reticulum.Node.StartupLifecycle.Default
       assert config.path_ttl_seconds == 120
       assert config.path_gc_interval_seconds == 2
+      assert config.routing_max_hops == 8
+      assert config.announce_forwarding == false
+      assert config.path_request_forwarding == false
       assert config.receipt_timeout_seconds == 8
       assert config.receipt_retention_seconds == 20
       assert config.ratchet_expiry_seconds == 900
@@ -86,6 +95,14 @@ defmodule Reticulum.Node.RuntimeTest do
 
       assert Node.start_link(path_gc_interval_seconds: 0) ==
                {:error, :invalid_path_gc_interval_seconds}
+
+      assert Node.start_link(routing_max_hops: 0) == {:error, :invalid_routing_max_hops}
+
+      assert Node.start_link(announce_forwarding: :yes) ==
+               {:error, :invalid_announce_forwarding}
+
+      assert Node.start_link(path_request_forwarding: :yes) ==
+               {:error, :invalid_path_request_forwarding}
 
       assert Node.start_link(receipt_timeout_seconds: 0) ==
                {:error, :invalid_receipt_timeout_seconds}

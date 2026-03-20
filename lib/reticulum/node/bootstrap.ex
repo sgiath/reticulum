@@ -16,6 +16,9 @@ defmodule Reticulum.Node.Bootstrap do
     :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
+    :routing_max_hops,
+    :announce_forwarding,
+    :path_request_forwarding,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds

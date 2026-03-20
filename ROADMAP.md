@@ -41,7 +41,7 @@ Status below is based on what is currently implemented in this repository.
 - [x] Payload encryption/decryption for destination packet data flows (`:single`/`:group`).
 - [x] Implicit proof behavior and `Destination.proof_strategy` semantics.
 - [x] Full authenticated IFAC (`ifac: :auth`) processing path.
-- [ ] Multi-hop forwarding plane and route selection policy.
+- [x] Multi-hop forwarding plane and route selection policy.
 - [ ] Transport control-plane parity (tunnel synthesis, blackhole handling, remote-management packet classes).
 - [ ] Announce queueing/ingress-control policy parity (caps, hold/release, stale announce handling).
 - [ ] Payload fragmentation/reassembly for large application messages.
@@ -91,9 +91,9 @@ Status below is based on what is currently implemented in this repository.
 
 - [ ] Persist identity, destination, and path state under `storage_path`.
 - [ ] Persist operational caches/hashes/ratchets needed for parity warm-start behavior.
-- [ ] Add startup policy for cold vs warm restore.
-- [ ] Add file-based configuration bootstrap for node + interfaces.
-- [ ] Make `shared_instance` enforce single-runtime ownership semantics.
+- [x] Add startup policy for cold vs warm restore.
+- [x] Add file-based configuration bootstrap for node + interfaces.
+- [x] Make `shared_instance` enforce single-runtime ownership semantics.
 - [ ] Implement shared-instance local client API/IPC parity.
 - [ ] Keep `config/reticulum.example.toml` + README config docs in sync for each new config surface.
 

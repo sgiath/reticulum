@@ -13,6 +13,9 @@ defmodule Reticulum.Bootstrap.Config do
     "startup_mode",
     "path_ttl_seconds",
     "path_gc_interval_seconds",
+    "routing_max_hops",
+    "announce_forwarding",
+    "path_request_forwarding",
     "receipt_timeout_seconds",
     "receipt_retention_seconds",
     "ratchet_expiry_seconds"
@@ -26,6 +29,9 @@ defmodule Reticulum.Bootstrap.Config do
     "startup_mode" => :startup_mode,
     "path_ttl_seconds" => :path_ttl_seconds,
     "path_gc_interval_seconds" => :path_gc_interval_seconds,
+    "routing_max_hops" => :routing_max_hops,
+    "announce_forwarding" => :announce_forwarding,
+    "path_request_forwarding" => :path_request_forwarding,
     "receipt_timeout_seconds" => :receipt_timeout_seconds,
     "receipt_retention_seconds" => :receipt_retention_seconds,
     "ratchet_expiry_seconds" => :ratchet_expiry_seconds
@@ -41,6 +47,9 @@ defmodule Reticulum.Bootstrap.Config do
     :startup_lifecycle,
     :path_ttl_seconds,
     :path_gc_interval_seconds,
+    :routing_max_hops,
+    :announce_forwarding,
+    :path_request_forwarding,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds

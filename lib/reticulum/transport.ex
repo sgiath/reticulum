@@ -25,6 +25,7 @@ defmodule Reticulum.Transport do
   alias Reticulum.Transport.PacketCrypto
   alias Reticulum.Transport.Pathfinder
   alias Reticulum.Transport.Proofs
+  alias Reticulum.Transport.Routing
 
   @truncated_hash_len 16
   @default_path_ttl_seconds 300
@@ -32,7 +33,10 @@ defmodule Reticulum.Transport do
   @default_receipt_timeout_seconds 10
   @default_receipt_retention_seconds 60
   @default_ratchet_expiry_seconds 2_592_000
+  @default_routing_max_hops 128
   @pending_path_request_ttl_seconds 30
+  @default_reverse_route_ttl_seconds 60
+  @local_control_packet_ttl_seconds 60
 
   @type state :: %{
           node_name: atom(),
@@ -45,6 +49,11 @@ defmodule Reticulum.Transport do
           receipt_timeout_seconds: pos_integer(),
           receipt_retention_seconds: pos_integer(),
           ratchet_expiry_seconds: pos_integer(),
+          routing_max_hops: pos_integer(),
+          announce_forwarding: boolean(),
+          path_request_forwarding: boolean(),
+          reverse_routes: %{binary() => %{interface: atom(), updated_at: integer()}},
+          local_control_packets: %{binary() => integer()},
           packet_receipts: %{
             binary() => %{
               receipt: PacketReceipt.t(),
@@ -132,6 +141,15 @@ defmodule Reticulum.Transport do
         @default_ratchet_expiry_seconds
       )
 
+    routing_max_hops =
+      normalize_positive_integer(
+        Map.get(config, :routing_max_hops),
+        @default_routing_max_hops
+      )
+
+    announce_forwarding = Map.get(config, :announce_forwarding, true) == true
+    path_request_forwarding = Map.get(config, :path_request_forwarding, true) == true
+
     :ok = State.subscribe_frames(state_server, self())
     schedule_path_maintenance(path_gc_interval_seconds)
 
@@ -147,6 +165,11 @@ defmodule Reticulum.Transport do
        receipt_timeout_seconds: receipt_timeout_seconds,
        receipt_retention_seconds: receipt_retention_seconds,
        ratchet_expiry_seconds: ratchet_expiry_seconds,
+       routing_max_hops: routing_max_hops,
+       announce_forwarding: announce_forwarding,
+       path_request_forwarding: path_request_forwarding,
+       reverse_routes: %{},
+       local_control_packets: %{},
        packet_receipts: %{}
      }}
   end
@@ -199,12 +222,17 @@ defmodule Reticulum.Transport do
            ),
          {:ok, canonical_raw, transmitted_raw, ifac} <-
            transmit_outbound(state, interface_name, packet, opts) do
+      updated_state = maybe_track_local_control_packet(state, canonical_raw)
       publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
 
       pending =
-        Map.put(state.pending_path_requests, destination_hash, System.system_time(:second))
+        Map.put(
+          updated_state.pending_path_requests,
+          destination_hash,
+          System.system_time(:second)
+        )
 
-      {:reply, {:ok, request_tag}, %{state | pending_path_requests: pending}}
+      {:reply, {:ok, request_tag}, %{updated_state | pending_path_requests: pending}}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
       other -> {:reply, other, state}
@@ -220,8 +248,9 @@ defmodule Reticulum.Transport do
          {:ok, response_packet} <- Pathfinder.build_path_response_packet(local_destination, opts),
          {:ok, canonical_raw, transmitted_raw, ifac} <-
            transmit_outbound(state, interface_name, response_packet, opts) do
+      updated_state = maybe_track_local_control_packet(state, canonical_raw)
       publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
-      {:reply, :ok, state}
+      {:reply, :ok, updated_state}
     else
       :error -> {:reply, {:error, :unknown_local_destination}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -267,10 +296,22 @@ defmodule Reticulum.Transport do
         state.node_name
       )
 
+    reverse_routes =
+      expire_timestamp_map(state.reverse_routes, now, @default_reverse_route_ttl_seconds)
+
+    local_control_packets =
+      expire_timestamp_map(state.local_control_packets, now, @local_control_packet_ttl_seconds)
+
     schedule_path_maintenance(state.path_gc_interval_seconds)
 
     {:noreply,
-     %{state | pending_path_requests: pending_path_requests, packet_receipts: packet_receipts}}
+     %{
+       state
+       | pending_path_requests: pending_path_requests,
+         packet_receipts: packet_receipts,
+         reverse_routes: reverse_routes,
+         local_control_packets: local_control_packets
+     }}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -283,7 +324,10 @@ defmodule Reticulum.Transport do
          {:ok, packet_hash} <- Packet.truncated_hash(canonical_raw),
          {:ok, packet} <- decode_packet(canonical_raw) do
       packet = %{packet | ifac: ifac}
-      duplicate = State.remember_packet_hash(state_server, packet_hash) == :existing
+
+      duplicate =
+        State.remember_packet_hash(state_server, packet_hash) == :existing or
+          Map.has_key?(state.local_control_packets, packet_hash)
 
       publish_inbound_packet(state, frame, raw, packet, packet_hash, duplicate)
 
@@ -299,6 +343,7 @@ defmodule Reticulum.Transport do
           packet_hash,
           packet_hash_full
         )
+        |> forward_transit_packet(frame, packet, packet_hash_full)
       end
     else
       {:error, reason} ->
@@ -327,18 +372,16 @@ defmodule Reticulum.Transport do
              announce_destination_opts(announce)
            ),
          :ok <-
-           State.put_path(
-             state.state_server,
+           maybe_store_path(
+             state,
              announce.destination_hash,
              endpoint_hash(frame.endpoint),
              packet.hops,
-             interface: frame.interface
+             frame.interface
            ) do
-      %{
-        state
-        | pending_path_requests:
-            Map.delete(state.pending_path_requests, announce.destination_hash)
-      }
+      state
+      |> clear_pending_path_request(announce.destination_hash)
+      |> maybe_forward_announce(frame, packet, announce)
     else
       _ ->
         state
@@ -363,13 +406,13 @@ defmodule Reticulum.Transport do
       state
     else
       _ ->
-        state
+        maybe_forward_path_request(state, frame, packet)
     end
   end
 
   defp route_control_packets(
          %{state_server: state_server} = state,
-         _frame,
+         frame,
          _raw,
          %Packet{type: :proof} = packet,
          proof_packet_hash,
@@ -390,7 +433,7 @@ defmodule Reticulum.Transport do
         %{state | packet_receipts: packet_receipts}
 
       :no_match ->
-        state
+        maybe_forward_proof(state, frame, packet)
 
       {:error, reason} ->
         Observability.emit(
@@ -406,6 +449,71 @@ defmodule Reticulum.Transport do
 
   defp route_control_packets(state, _frame, _raw, _packet, _packet_hash, _packet_hash_full),
     do: state
+
+  defp clear_pending_path_request(state, destination_hash) when is_binary(destination_hash) do
+    %{state | pending_path_requests: Map.delete(state.pending_path_requests, destination_hash)}
+  end
+
+  defp clear_pending_path_request(state, _destination_hash), do: state
+
+  defp maybe_forward_announce(
+         %{transport_enabled: true, announce_forwarding: true} = state,
+         frame,
+         %Packet{} = packet,
+         announce
+       ) do
+    cond do
+      packet.hops >= state.routing_max_hops ->
+        state
+
+      local_destination?(state.state_server, announce.destination_hash) ->
+        state
+
+      true ->
+        state
+        |> forward_packet_to_interfaces(
+          next_hop_packet(packet),
+          eligible_broadcast_interfaces(state, frame.interface)
+        )
+    end
+  end
+
+  defp maybe_forward_announce(state, _frame, _packet, _announce), do: state
+
+  defp maybe_forward_path_request(
+         %{transport_enabled: true, path_request_forwarding: true} = state,
+         frame,
+         %Packet{} = packet
+       ) do
+    if packet.hops >= state.routing_max_hops do
+      state
+    else
+      forward_packet_to_interfaces(
+        state,
+        next_hop_packet(packet),
+        eligible_broadcast_interfaces(state, frame.interface)
+      )
+    end
+  end
+
+  defp maybe_forward_path_request(state, _frame, _packet), do: state
+
+  defp maybe_forward_proof(
+         %{transport_enabled: true, reverse_routes: reverse_routes} = state,
+         frame,
+         %Packet{addresses: [proof_destination_hash]} = packet
+       )
+       when is_binary(proof_destination_hash) do
+    case Map.get(reverse_routes, proof_destination_hash) do
+      %{interface: interface} when interface != frame.interface ->
+        forward_packet_to_interfaces(state, next_hop_packet(packet), [interface])
+
+      _ ->
+        state
+    end
+  end
+
+  defp maybe_forward_proof(state, _frame, _packet), do: state
 
   defp send_path_response(state, %{interface: interface, endpoint: {ip, port}}, packet_or_raw) do
     transmit_outbound(state, interface, packet_or_raw, ip: ip, port: port)
@@ -463,6 +571,185 @@ defmodule Reticulum.Transport do
          _packet_hash_full
        ),
        do: state
+
+  defp forward_transit_packet(
+         %{transport_enabled: true} = state,
+         frame,
+         %Packet{type: type, addresses: [destination_hash | _]} = packet,
+         packet_hash_full
+       )
+       when type in [:data, :link_request] and is_binary(destination_hash) do
+    cond do
+      local_destination?(state.state_server, destination_hash) ->
+        state
+
+      match?({:ok, _}, Pathfinder.parse_path_request_packet(packet)) ->
+        state
+
+      packet.hops >= state.routing_max_hops ->
+        state
+
+      true ->
+        case select_transit_interface(state, destination_hash, frame.interface) do
+          {:ok, interface} ->
+            state
+            |> remember_reverse_route(packet_hash_full, frame.interface)
+            |> forward_packet_to_interfaces(next_hop_packet(packet), [interface])
+
+          :error ->
+            state
+        end
+    end
+  end
+
+  defp forward_transit_packet(state, _frame, _packet, _packet_hash_full), do: state
+
+  defp select_transit_interface(state, destination_hash, ingress_interface) do
+    case State.path(state.state_server, destination_hash) do
+      {:ok, %{interface: interface}} when is_atom(interface) and interface != ingress_interface ->
+        if interface_healthy?(state.state_server, interface) do
+          {:ok, interface}
+        else
+          :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp maybe_store_path(state, destination_hash, next_hop, hops, interface)
+       when is_binary(destination_hash) and is_binary(next_hop) and is_integer(hops) do
+    candidate = %{hops: hops, interface: interface, updated_at: System.system_time(:second)}
+    candidate_healthy = interface_healthy?(state.state_server, interface)
+
+    current_path =
+      case State.path(state.state_server, destination_hash) do
+        {:ok, path} -> path
+        _ -> nil
+      end
+
+    current_healthy =
+      case current_path do
+        %{interface: current_interface} ->
+          interface_healthy?(state.state_server, current_interface)
+
+        _ ->
+          false
+      end
+
+    if Routing.prefer_candidate?(candidate, current_path,
+         candidate_healthy: candidate_healthy,
+         current_healthy: current_healthy
+       ) do
+      State.put_path(state.state_server, destination_hash, next_hop, hops, interface: interface)
+    else
+      :ok
+    end
+  end
+
+  defp maybe_store_path(_state, _destination_hash, _next_hop, _hops, _interface),
+    do: {:error, :invalid_path}
+
+  defp eligible_broadcast_interfaces(state, ingress_interface) do
+    case State.interfaces(state.state_server) do
+      {:ok, interfaces} ->
+        interfaces
+        |> Enum.map(& &1.name)
+        |> Enum.filter(&(&1 != ingress_interface and interface_healthy?(state.state_server, &1)))
+
+      _ ->
+        []
+    end
+  end
+
+  defp interface_healthy?(state_server, interface) when is_atom(interface) do
+    case State.interface(state_server, interface) do
+      {:ok, %{pid: pid}} when is_pid(pid) -> Process.alive?(pid)
+      _ -> false
+    end
+  end
+
+  defp interface_healthy?(_state_server, _interface), do: false
+
+  defp local_destination?(state_server, destination_hash) when is_binary(destination_hash) do
+    match?({:ok, _}, State.local_destination(state_server, destination_hash))
+  end
+
+  defp local_destination?(_state_server, _destination_hash), do: false
+
+  defp remember_reverse_route(state, packet_hash_full, ingress_interface)
+       when is_binary(packet_hash_full) and is_atom(ingress_interface) do
+    reverse_key = binary_part(packet_hash_full, 0, @truncated_hash_len)
+
+    reverse_routes =
+      Map.put(state.reverse_routes, reverse_key, %{
+        interface: ingress_interface,
+        updated_at: System.system_time(:second)
+      })
+
+    %{state | reverse_routes: reverse_routes}
+  end
+
+  defp remember_reverse_route(state, _packet_hash_full, _ingress_interface), do: state
+
+  defp forward_packet_to_interfaces(state, _packet, []), do: state
+
+  defp forward_packet_to_interfaces(state, %Packet{} = packet, interfaces) do
+    Enum.reduce(interfaces, state, fn interface, acc ->
+      case transmit_outbound(acc, interface, packet, []) do
+        {:ok, canonical_raw, transmitted_raw, ifac} ->
+          publish_outbound_packet(acc, interface, canonical_raw, transmitted_raw, ifac)
+          acc
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp next_hop_packet(%Packet{} = packet) do
+    %{packet | hops: min(packet.hops + 1, 255)}
+  end
+
+  defp maybe_track_local_control_packet(state, canonical_raw) when is_binary(canonical_raw) do
+    with {:ok, packet_hash} <- Packet.truncated_hash(canonical_raw),
+         {:ok, packet} <- decode_packet(canonical_raw),
+         true <- local_control_packet?(packet) do
+      local_control_packets =
+        Map.put(state.local_control_packets, packet_hash, System.system_time(:second))
+
+      %{state | local_control_packets: local_control_packets}
+    else
+      _ -> state
+    end
+  end
+
+  defp maybe_track_local_control_packet(state, _canonical_raw), do: state
+
+  defp local_control_packet?(%Packet{type: :announce}), do: true
+
+  defp local_control_packet?(%Packet{} = packet) do
+    match?({:ok, _}, Pathfinder.parse_path_request_packet(packet))
+  end
+
+  defp local_control_packet?(_packet), do: false
+
+  defp expire_timestamp_map(entries, now, ttl_seconds)
+       when is_map(entries) and is_integer(now) and is_integer(ttl_seconds) and ttl_seconds > 0 do
+    entries
+    |> Enum.reject(fn {_key, value} -> timestamp_expired?(value, now, ttl_seconds) end)
+    |> Map.new()
+  end
+
+  defp timestamp_expired?(%{updated_at: updated_at}, now, ttl_seconds)
+       when is_integer(updated_at),
+       do: now - updated_at > ttl_seconds
+
+  defp timestamp_expired?(updated_at, now, ttl_seconds) when is_integer(updated_at),
+    do: now - updated_at > ttl_seconds
+
+  defp timestamp_expired?(_value, _now, _ttl_seconds), do: false
 
   defp dispatch_message_hooks(state_server, destination_hash, packet, event) do
     with {:ok, context} <- Context.normalize(packet.context) do

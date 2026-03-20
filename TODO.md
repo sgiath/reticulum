@@ -54,7 +54,7 @@ Implemented in commit `d4064c5`.
 
 ## Phase 7 - IFAC Auth End-to-End
 
-Implemented in working tree.
+Implemented in commit `83c8de8`.
 
 - [x] Validate authenticated IFAC (`ifac: :auth`) packet path end-to-end.
 - [x] Add targeted protocol-path tests for IFAC auth behavior.
@@ -62,14 +62,15 @@ Implemented in working tree.
 
 ## Phase 8 - Routing Core
 
-- [ ] Implement full transit forwarding across multiple interfaces.
-- [ ] Add route/path selection policy (hops, freshness, interface health).
-- [ ] Add announce forwarding policy and loop protection.
-- [ ] Update `config/reticulum.example.toml` + README config section for routing policy options.
+- [x] Implement full transit forwarding across multiple interfaces.
+- [x] Add route/path selection policy (hops, freshness, interface health).
+- [x] Add announce forwarding policy and loop protection.
+- [x] Update `config/reticulum.example.toml` + README config section for routing policy options.
 
 ## Phase 9 - Routing Resilience and Topology Tests
 
 - [ ] Add path request retry/backoff and duplicate suppression tuning.
+- [ ] Revisit Phase 8 path-request forwarding defaults; tune retry intervals, fanout, and suppression based on topology tests.
 - [ ] Add forwarding policy tests under mixed interface/topology scenarios.
 
 ## Phase 10 - Interface Platform Foundation
@@ -77,6 +78,7 @@ Implemented in working tree.
 - [ ] Add stable adapter contract for pluggable custom interfaces.
 - [ ] Keep interface implementations OTP-native (supervised workers, no unmanaged spawned interface processes).
 - [ ] Add per-interface queue limits, backpressure, and rate limiting.
+- [ ] Replace Phase 8 minimal interface liveness checks with richer interface-health scoring/telemetry inputs for route selection.
 - [ ] Update `config/reticulum.example.toml` + README config section for queue/backpressure/rate-limit options.
 
 ## Phase 11 - Interface Parity Implementations

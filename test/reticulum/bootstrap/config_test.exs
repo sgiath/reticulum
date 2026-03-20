@@ -16,6 +16,9 @@ defmodule Reticulum.Bootstrap.ConfigTest do
           "startup_mode" => "warm_restore",
           "path_ttl_seconds" => 120,
           "path_gc_interval_seconds" => 2,
+          "routing_max_hops" => 8,
+          "announce_forwarding" => false,
+          "path_request_forwarding" => false,
           "receipt_timeout_seconds" => 8,
           "receipt_retention_seconds" => 20,
           "ratchet_expiry_seconds" => 900
@@ -48,6 +51,9 @@ defmodule Reticulum.Bootstrap.ConfigTest do
       assert bootstrap.node_opts[:startup_lifecycle] == Reticulum.Node.StartupLifecycle.Default
       assert bootstrap.node_opts[:path_ttl_seconds] == 120
       assert bootstrap.node_opts[:path_gc_interval_seconds] == 2
+      assert bootstrap.node_opts[:routing_max_hops] == 8
+      assert bootstrap.node_opts[:announce_forwarding] == false
+      assert bootstrap.node_opts[:path_request_forwarding] == false
       assert bootstrap.node_opts[:receipt_timeout_seconds] == 8
       assert bootstrap.node_opts[:receipt_retention_seconds] == 20
       assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
