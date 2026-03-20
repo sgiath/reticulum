@@ -42,6 +42,7 @@ Status below is based on what is currently implemented in this repository.
 - [x] Implicit proof behavior and `Destination.proof_strategy` semantics.
 - [x] Full authenticated IFAC (`ifac: :auth`) processing path.
 - [x] Multi-hop forwarding plane and route selection policy.
+- [x] Path request retry/backoff, duplicate suppression, and topology-tuned forwarding fanout.
 - [ ] Transport control-plane parity (tunnel synthesis, blackhole handling, remote-management packet classes).
 - [ ] Announce queueing/ingress-control policy parity (caps, hold/release, stale announce handling).
 - [ ] Payload fragmentation/reassembly for large application messages.
@@ -74,6 +75,7 @@ Status below is based on what is currently implemented in this repository.
 - [x] Elixir <-> Python interop vectors for packet, crypto, identity, destination.
 - [x] Integration interop tests for send/receive network sessions.
 - [x] Malformed input and regression coverage for current packet/crypto scope.
+- [x] Mixed-topology routing resilience coverage for path request retries, suppression, and fanout selection.
 - [ ] Interop coverage for links/channels/resources.
 - [ ] Fault-injection campaigns (loss/duplication/reordering/stale paths).
 - [ ] Release compatibility matrix reports.

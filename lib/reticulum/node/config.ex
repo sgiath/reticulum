@@ -25,6 +25,13 @@ defmodule Reticulum.Node.Config do
           routing_max_hops: pos_integer(),
           announce_forwarding: boolean(),
           path_request_forwarding: boolean(),
+          path_request_timeout_seconds: pos_integer(),
+          path_request_retry_count: non_neg_integer(),
+          path_request_retry_base_seconds: pos_integer(),
+          path_request_retry_backoff_factor: pos_integer(),
+          path_request_min_interval_seconds: pos_integer(),
+          path_request_duplicate_ttl_seconds: pos_integer(),
+          path_request_fanout: pos_integer(),
           receipt_timeout_seconds: pos_integer(),
           receipt_retention_seconds: pos_integer(),
           ratchet_expiry_seconds: pos_integer()
@@ -43,6 +50,13 @@ defmodule Reticulum.Node.Config do
     :routing_max_hops,
     :announce_forwarding,
     :path_request_forwarding,
+    :path_request_timeout_seconds,
+    :path_request_retry_count,
+    :path_request_retry_base_seconds,
+    :path_request_retry_backoff_factor,
+    :path_request_min_interval_seconds,
+    :path_request_duplicate_ttl_seconds,
+    :path_request_fanout,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -60,6 +74,13 @@ defmodule Reticulum.Node.Config do
     :routing_max_hops,
     :announce_forwarding,
     :path_request_forwarding,
+    :path_request_timeout_seconds,
+    :path_request_retry_count,
+    :path_request_retry_base_seconds,
+    :path_request_retry_backoff_factor,
+    :path_request_min_interval_seconds,
+    :path_request_duplicate_ttl_seconds,
+    :path_request_fanout,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -106,6 +127,41 @@ defmodule Reticulum.Node.Config do
              Keyword.get(opts, :path_request_forwarding, true),
              :path_request_forwarding
            ),
+         {:ok, path_request_timeout_seconds} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_timeout_seconds, 15),
+             :path_request_timeout_seconds
+           ),
+         {:ok, path_request_retry_count} <-
+           validate_non_negative_integer(
+             Keyword.get(opts, :path_request_retry_count, 1),
+             :path_request_retry_count
+           ),
+         {:ok, path_request_retry_base_seconds} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_retry_base_seconds, 5),
+             :path_request_retry_base_seconds
+           ),
+         {:ok, path_request_retry_backoff_factor} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_retry_backoff_factor, 2),
+             :path_request_retry_backoff_factor
+           ),
+         {:ok, path_request_min_interval_seconds} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_min_interval_seconds, 20),
+             :path_request_min_interval_seconds
+           ),
+         {:ok, path_request_duplicate_ttl_seconds} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_duplicate_ttl_seconds, 15),
+             :path_request_duplicate_ttl_seconds
+           ),
+         {:ok, path_request_fanout} <-
+           validate_positive_integer(
+             Keyword.get(opts, :path_request_fanout, 2),
+             :path_request_fanout
+           ),
          {:ok, receipt_timeout_seconds} <-
            validate_positive_integer(
              Keyword.get(opts, :receipt_timeout_seconds, 10),
@@ -135,6 +191,13 @@ defmodule Reticulum.Node.Config do
          routing_max_hops: routing_max_hops,
          announce_forwarding: announce_forwarding,
          path_request_forwarding: path_request_forwarding,
+         path_request_timeout_seconds: path_request_timeout_seconds,
+         path_request_retry_count: path_request_retry_count,
+         path_request_retry_base_seconds: path_request_retry_base_seconds,
+         path_request_retry_backoff_factor: path_request_retry_backoff_factor,
+         path_request_min_interval_seconds: path_request_min_interval_seconds,
+         path_request_duplicate_ttl_seconds: path_request_duplicate_ttl_seconds,
+         path_request_fanout: path_request_fanout,
          receipt_timeout_seconds: receipt_timeout_seconds,
          receipt_retention_seconds: receipt_retention_seconds,
          ratchet_expiry_seconds: ratchet_expiry_seconds
@@ -162,6 +225,13 @@ defmodule Reticulum.Node.Config do
             :routing_max_hops,
             :announce_forwarding,
             :path_request_forwarding,
+            :path_request_timeout_seconds,
+            :path_request_retry_count,
+            :path_request_retry_base_seconds,
+            :path_request_retry_backoff_factor,
+            :path_request_min_interval_seconds,
+            :path_request_duplicate_ttl_seconds,
+            :path_request_fanout,
             :receipt_timeout_seconds,
             :receipt_retention_seconds,
             :ratchet_expiry_seconds
@@ -192,6 +262,12 @@ defmodule Reticulum.Node.Config do
   defp validate_boolean(_value, :path_request_forwarding),
     do: {:error, :invalid_path_request_forwarding}
 
+  defp validate_non_negative_integer(value, _field) when is_integer(value) and value >= 0,
+    do: {:ok, value}
+
+  defp validate_non_negative_integer(_value, :path_request_retry_count),
+    do: {:error, :invalid_path_request_retry_count}
+
   defp validate_startup_mode(:cold), do: {:ok, :cold}
   defp validate_startup_mode(:warm_restore), do: {:ok, :warm_restore}
   defp validate_startup_mode("cold"), do: {:ok, :cold}
@@ -220,6 +296,24 @@ defmodule Reticulum.Node.Config do
 
   defp validate_positive_integer(_value, :routing_max_hops),
     do: {:error, :invalid_routing_max_hops}
+
+  defp validate_positive_integer(_value, :path_request_timeout_seconds),
+    do: {:error, :invalid_path_request_timeout_seconds}
+
+  defp validate_positive_integer(_value, :path_request_retry_base_seconds),
+    do: {:error, :invalid_path_request_retry_base_seconds}
+
+  defp validate_positive_integer(_value, :path_request_retry_backoff_factor),
+    do: {:error, :invalid_path_request_retry_backoff_factor}
+
+  defp validate_positive_integer(_value, :path_request_min_interval_seconds),
+    do: {:error, :invalid_path_request_min_interval_seconds}
+
+  defp validate_positive_integer(_value, :path_request_duplicate_ttl_seconds),
+    do: {:error, :invalid_path_request_duplicate_ttl_seconds}
+
+  defp validate_positive_integer(_value, :path_request_fanout),
+    do: {:error, :invalid_path_request_fanout}
 
   defp validate_positive_integer(_value, :receipt_timeout_seconds),
     do: {:error, :invalid_receipt_timeout_seconds}

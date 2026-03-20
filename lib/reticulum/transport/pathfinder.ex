@@ -26,6 +26,11 @@ defmodule Reticulum.Transport.Pathfinder do
 
   def path_request_destination_hash, do: @path_request_hash
 
+  def request_key(destination_hash, request_tag)
+      when is_binary(destination_hash) and is_binary(request_tag) do
+    destination_hash <> request_tag
+  end
+
   def build_path_request_packet(destination_hash, opts \\ []) when is_list(opts) do
     requester_hash = Keyword.get(opts, :requester_hash, nil)
     request_tag = Keyword.get(opts, :request_tag, :crypto.strong_rand_bytes(@truncated_hash_len))

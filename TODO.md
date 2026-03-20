@@ -62,6 +62,8 @@ Implemented in commit `83c8de8`.
 
 ## Phase 8 - Routing Core
 
+Implemented in commit `a941d3d`.
+
 - [x] Implement full transit forwarding across multiple interfaces.
 - [x] Add route/path selection policy (hops, freshness, interface health).
 - [x] Add announce forwarding policy and loop protection.
@@ -69,9 +71,11 @@ Implemented in commit `83c8de8`.
 
 ## Phase 9 - Routing Resilience and Topology Tests
 
-- [ ] Add path request retry/backoff and duplicate suppression tuning.
-- [ ] Revisit Phase 8 path-request forwarding defaults; tune retry intervals, fanout, and suppression based on topology tests.
-- [ ] Add forwarding policy tests under mixed interface/topology scenarios.
+Implemented in working tree (pending commit).
+
+- [x] Add path request retry/backoff and duplicate suppression tuning.
+- [x] Revisit Phase 8 path-request forwarding defaults; tune retry intervals, fanout, and suppression based on topology tests.
+- [x] Add forwarding policy tests under mixed interface/topology scenarios.
 
 ## Phase 10 - Interface Platform Foundation
 

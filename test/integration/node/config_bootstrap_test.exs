@@ -26,6 +26,13 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       routing_max_hops = 8
       announce_forwarding = false
       path_request_forwarding = false
+      path_request_timeout_seconds = 12
+      path_request_retry_count = 2
+      path_request_retry_base_seconds = 3
+      path_request_retry_backoff_factor = 3
+      path_request_min_interval_seconds = 9
+      path_request_duplicate_ttl_seconds = 11
+      path_request_fanout = 4
       receipt_timeout_seconds = 8
       receipt_retention_seconds = 20
       ratchet_expiry_seconds = 900
@@ -52,6 +59,13 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert config.routing_max_hops == 8
     assert config.announce_forwarding == false
     assert config.path_request_forwarding == false
+    assert config.path_request_timeout_seconds == 12
+    assert config.path_request_retry_count == 2
+    assert config.path_request_retry_base_seconds == 3
+    assert config.path_request_retry_backoff_factor == 3
+    assert config.path_request_min_interval_seconds == 9
+    assert config.path_request_duplicate_ttl_seconds == 11
+    assert config.path_request_fanout == 4
     assert config.receipt_timeout_seconds == 8
     assert config.receipt_retention_seconds == 20
     assert config.ratchet_expiry_seconds == 900

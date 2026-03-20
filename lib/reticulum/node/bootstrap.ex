@@ -19,6 +19,13 @@ defmodule Reticulum.Node.Bootstrap do
     :routing_max_hops,
     :announce_forwarding,
     :path_request_forwarding,
+    :path_request_timeout_seconds,
+    :path_request_retry_count,
+    :path_request_retry_base_seconds,
+    :path_request_retry_backoff_factor,
+    :path_request_min_interval_seconds,
+    :path_request_duplicate_ttl_seconds,
+    :path_request_fanout,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds

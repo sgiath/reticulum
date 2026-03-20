@@ -34,16 +34,41 @@ defmodule Reticulum.Transport do
   @default_receipt_retention_seconds 60
   @default_ratchet_expiry_seconds 2_592_000
   @default_routing_max_hops 128
-  @pending_path_request_ttl_seconds 30
+  @default_path_request_timeout_seconds 15
+  @default_path_request_retry_count 1
+  @default_path_request_retry_base_seconds 5
+  @default_path_request_retry_backoff_factor 2
+  @default_path_request_min_interval_seconds 20
+  @default_path_request_duplicate_ttl_seconds 15
+  @default_path_request_fanout 2
   @default_reverse_route_ttl_seconds 60
   @local_control_packet_ttl_seconds 60
+  @path_request_retry_check_interval_ms 250
+
+  @type pending_path_request :: %{
+          destination_hash: binary(),
+          requester_hash: binary() | nil,
+          interface: atom(),
+          request_tag: binary(),
+          first_sent_at_ms: integer(),
+          last_sent_at_ms: integer(),
+          next_retry_at_ms: integer() | nil,
+          retries_sent: non_neg_integer(),
+          expires_at_ms: integer()
+        }
+
+  @type seen_path_request :: %{
+          interface: atom() | nil,
+          updated_at_ms: integer()
+        }
 
   @type state :: %{
           node_name: atom(),
           state_server: GenServer.server(),
           transport_enabled: boolean(),
           use_implicit_proof: boolean(),
-          pending_path_requests: %{binary() => integer()},
+          pending_path_requests: %{binary() => pending_path_request()},
+          seen_path_requests: %{binary() => seen_path_request()},
           path_ttl_seconds: pos_integer(),
           path_gc_interval_seconds: pos_integer(),
           receipt_timeout_seconds: pos_integer(),
@@ -52,6 +77,13 @@ defmodule Reticulum.Transport do
           routing_max_hops: pos_integer(),
           announce_forwarding: boolean(),
           path_request_forwarding: boolean(),
+          path_request_timeout_seconds: pos_integer(),
+          path_request_retry_count: non_neg_integer(),
+          path_request_retry_base_seconds: pos_integer(),
+          path_request_retry_backoff_factor: pos_integer(),
+          path_request_min_interval_seconds: pos_integer(),
+          path_request_duplicate_ttl_seconds: pos_integer(),
+          path_request_fanout: pos_integer(),
           reverse_routes: %{binary() => %{interface: atom(), updated_at: integer()}},
           local_control_packets: %{binary() => integer()},
           packet_receipts: %{
@@ -150,8 +182,51 @@ defmodule Reticulum.Transport do
     announce_forwarding = Map.get(config, :announce_forwarding, true) == true
     path_request_forwarding = Map.get(config, :path_request_forwarding, true) == true
 
+    path_request_timeout_seconds =
+      normalize_positive_integer(
+        Map.get(config, :path_request_timeout_seconds),
+        @default_path_request_timeout_seconds
+      )
+
+    path_request_retry_count =
+      normalize_non_negative_integer(
+        Map.get(config, :path_request_retry_count),
+        @default_path_request_retry_count
+      )
+
+    path_request_retry_base_seconds =
+      normalize_positive_integer(
+        Map.get(config, :path_request_retry_base_seconds),
+        @default_path_request_retry_base_seconds
+      )
+
+    path_request_retry_backoff_factor =
+      normalize_positive_integer(
+        Map.get(config, :path_request_retry_backoff_factor),
+        @default_path_request_retry_backoff_factor
+      )
+
+    path_request_min_interval_seconds =
+      normalize_positive_integer(
+        Map.get(config, :path_request_min_interval_seconds),
+        @default_path_request_min_interval_seconds
+      )
+
+    path_request_duplicate_ttl_seconds =
+      normalize_positive_integer(
+        Map.get(config, :path_request_duplicate_ttl_seconds),
+        @default_path_request_duplicate_ttl_seconds
+      )
+
+    path_request_fanout =
+      normalize_positive_integer(
+        Map.get(config, :path_request_fanout),
+        @default_path_request_fanout
+      )
+
     :ok = State.subscribe_frames(state_server, self())
     schedule_path_maintenance(path_gc_interval_seconds)
+    schedule_path_request_retry_check()
 
     {:ok,
      %{
@@ -160,6 +235,7 @@ defmodule Reticulum.Transport do
        transport_enabled: transport_enabled,
        use_implicit_proof: use_implicit_proof,
        pending_path_requests: %{},
+       seen_path_requests: %{},
        path_ttl_seconds: path_ttl_seconds,
        path_gc_interval_seconds: path_gc_interval_seconds,
        receipt_timeout_seconds: receipt_timeout_seconds,
@@ -168,6 +244,13 @@ defmodule Reticulum.Transport do
        routing_max_hops: routing_max_hops,
        announce_forwarding: announce_forwarding,
        path_request_forwarding: path_request_forwarding,
+       path_request_timeout_seconds: path_request_timeout_seconds,
+       path_request_retry_count: path_request_retry_count,
+       path_request_retry_base_seconds: path_request_retry_base_seconds,
+       path_request_retry_backoff_factor: path_request_retry_backoff_factor,
+       path_request_min_interval_seconds: path_request_min_interval_seconds,
+       path_request_duplicate_ttl_seconds: path_request_duplicate_ttl_seconds,
+       path_request_fanout: path_request_fanout,
        reverse_routes: %{},
        local_control_packets: %{},
        packet_receipts: %{}
@@ -211,31 +294,47 @@ defmodule Reticulum.Transport do
   end
 
   def handle_call({:request_path, interface_name, destination_hash, opts}, _from, state) do
-    requester_hash = Keyword.get(opts, :requester_hash, nil)
-    request_tag = Keyword.get(opts, :request_tag, :crypto.strong_rand_bytes(@truncated_hash_len))
+    now_ms = now_ms()
 
-    with {:ok, packet} <-
-           Pathfinder.build_path_request_packet(
-             destination_hash,
-             requester_hash: requester_hash,
-             request_tag: request_tag
-           ),
-         {:ok, canonical_raw, transmitted_raw, ifac} <-
-           transmit_outbound(state, interface_name, packet, opts) do
-      updated_state = maybe_track_local_control_packet(state, canonical_raw)
-      publish_outbound_packet(state, interface_name, canonical_raw, transmitted_raw, ifac)
-
-      pending =
-        Map.put(
-          updated_state.pending_path_requests,
-          destination_hash,
-          System.system_time(:second)
-        )
-
-      {:reply, {:ok, request_tag}, %{updated_state | pending_path_requests: pending}}
+    if reuse_pending_path_request?(state, destination_hash, interface_name, now_ms) do
+      {:reply, {:ok, state.pending_path_requests[destination_hash].request_tag}, state}
     else
-      {:error, reason} -> {:reply, {:error, reason}, state}
-      other -> {:reply, other, state}
+      requester_hash = Keyword.get(opts, :requester_hash, nil)
+
+      request_tag =
+        Keyword.get(opts, :request_tag, :crypto.strong_rand_bytes(@truncated_hash_len))
+
+      case emit_path_request(
+             state,
+             interface_name,
+             destination_hash,
+             requester_hash,
+             request_tag,
+             opts
+           ) do
+        {:ok, updated_state} ->
+          pending =
+            Map.put(
+              updated_state.pending_path_requests,
+              destination_hash,
+              new_pending_path_request(
+                state,
+                destination_hash,
+                interface_name,
+                requester_hash,
+                request_tag,
+                now_ms
+              )
+            )
+
+          {:reply, {:ok, request_tag}, %{updated_state | pending_path_requests: pending}}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+
+        other ->
+          {:reply, other, state}
+      end
     end
   end
 
@@ -280,13 +379,14 @@ defmodule Reticulum.Transport do
       )
 
     now = System.system_time(:second)
+    pending_path_requests = expire_pending_path_requests(state.pending_path_requests, now_ms())
 
-    pending_path_requests =
-      state.pending_path_requests
-      |> Enum.reject(fn {_destination_hash, requested_at} ->
-        now - requested_at > @pending_path_request_ttl_seconds
-      end)
-      |> Map.new()
+    seen_path_requests =
+      expire_seen_path_requests(
+        state.seen_path_requests,
+        now_ms(),
+        state.path_request_duplicate_ttl_seconds
+      )
 
     packet_receipts =
       expire_packet_receipts(
@@ -308,10 +408,16 @@ defmodule Reticulum.Transport do
      %{
        state
        | pending_path_requests: pending_path_requests,
+         seen_path_requests: seen_path_requests,
          packet_receipts: packet_receipts,
          reverse_routes: reverse_routes,
          local_control_packets: local_control_packets
      }}
+  end
+
+  def handle_info(:path_request_retry_check, state) do
+    schedule_path_request_retry_check()
+    {:noreply, retry_pending_path_requests(state)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -396,17 +502,12 @@ defmodule Reticulum.Transport do
          _packet_hash,
          _packet_hash_full
        ) do
-    with {:ok, path_request} <- Pathfinder.parse_path_request_packet(packet),
-         {:ok, local_destination} <-
-           State.local_destination(state.state_server, path_request.destination_hash),
-         {:ok, response_packet} <- Pathfinder.build_path_response_packet(local_destination),
-         {:ok, canonical_raw, transmitted_raw, ifac} <-
-           send_path_response(state, frame, response_packet) do
-      publish_outbound_packet(state, frame.interface, canonical_raw, transmitted_raw, ifac)
-      state
-    else
+    case Pathfinder.parse_path_request_packet(packet) do
+      {:ok, path_request} ->
+        handle_path_request_packet(state, frame, packet, path_request)
+
       _ ->
-        maybe_forward_path_request(state, frame, packet)
+        state
     end
   end
 
@@ -491,7 +592,7 @@ defmodule Reticulum.Transport do
       forward_packet_to_interfaces(
         state,
         next_hop_packet(packet),
-        eligible_broadcast_interfaces(state, frame.interface)
+        eligible_path_request_interfaces(state, frame.interface)
       )
     end
   end
@@ -514,6 +615,43 @@ defmodule Reticulum.Transport do
   end
 
   defp maybe_forward_proof(state, _frame, _packet), do: state
+
+  defp handle_path_request_packet(state, frame, packet, path_request) do
+    case remember_inbound_path_request(state, frame.interface, path_request) do
+      {:duplicate, updated_state} ->
+        updated_state
+
+      {:new, updated_state} ->
+        answer_or_forward_path_request(updated_state, frame, packet, path_request)
+    end
+  end
+
+  defp answer_or_forward_path_request(state, frame, packet, path_request) do
+    case State.local_destination(state.state_server, path_request.destination_hash) do
+      {:ok, local_destination} ->
+        answer_path_request(state, frame, local_destination)
+
+      :error ->
+        maybe_forward_path_request(state, frame, packet)
+    end
+  end
+
+  defp answer_path_request(state, frame, local_destination) do
+    case Pathfinder.build_path_response_packet(local_destination) do
+      {:ok, response_packet} ->
+        case send_path_response(state, frame, response_packet) do
+          {:ok, canonical_raw, transmitted_raw, ifac} ->
+            publish_outbound_packet(state, frame.interface, canonical_raw, transmitted_raw, ifac)
+            state
+
+          _ ->
+            state
+        end
+
+      _ ->
+        state
+    end
+  end
 
   defp send_path_response(state, %{interface: interface, endpoint: {ip, port}}, packet_or_raw) do
     transmit_outbound(state, interface, packet_or_raw, ip: ip, port: port)
@@ -661,6 +799,12 @@ defmodule Reticulum.Transport do
       _ ->
         []
     end
+  end
+
+  defp eligible_path_request_interfaces(state, ingress_interface) do
+    state
+    |> eligible_broadcast_interfaces(ingress_interface)
+    |> Enum.take(state.path_request_fanout)
   end
 
   defp interface_healthy?(state_server, interface) when is_atom(interface) do
@@ -1245,8 +1389,224 @@ defmodule Reticulum.Transport do
 
   defp announce_destination_opts(_announce), do: [ratchet: nil, ratchet_received_at: nil]
 
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp reuse_pending_path_request?(state, destination_hash, interface_name, now_ms)
+       when is_binary(destination_hash) and is_atom(interface_name) and is_integer(now_ms) do
+    min_interval_ms = state.path_request_min_interval_seconds * 1_000
+
+    case Map.get(state.pending_path_requests, destination_hash) do
+      %{interface: ^interface_name, last_sent_at_ms: last_sent_at_ms} = entry ->
+        not pending_path_request_expired?(entry, now_ms) and
+          now_ms - last_sent_at_ms < min_interval_ms
+
+      _ ->
+        false
+    end
+  end
+
+  defp reuse_pending_path_request?(_state, _destination_hash, _interface_name, _now_ms), do: false
+
+  defp new_pending_path_request(
+         state,
+         destination_hash,
+         interface_name,
+         requester_hash,
+         request_tag,
+         now_ms
+       ) do
+    %{
+      destination_hash: destination_hash,
+      requester_hash: requester_hash,
+      interface: interface_name,
+      request_tag: request_tag,
+      first_sent_at_ms: now_ms,
+      last_sent_at_ms: now_ms,
+      next_retry_at_ms: next_retry_at_ms(state, now_ms, 0),
+      retries_sent: 0,
+      expires_at_ms: now_ms + state.path_request_timeout_seconds * 1_000
+    }
+  end
+
+  defp emit_path_request(
+         state,
+         interface_name,
+         destination_hash,
+         requester_hash,
+         request_tag,
+         opts
+       ) do
+    with {:ok, packet} <-
+           Pathfinder.build_path_request_packet(
+             destination_hash,
+             requester_hash: requester_hash,
+             request_tag: request_tag
+           ),
+         {:ok, canonical_raw, transmitted_raw, ifac} <-
+           transmit_outbound(state, interface_name, packet, opts) do
+      updated_state =
+        state
+        |> maybe_track_local_control_packet(canonical_raw)
+        |> remember_path_request_key(destination_hash, request_tag, interface_name)
+
+      publish_outbound_packet(updated_state, interface_name, canonical_raw, transmitted_raw, ifac)
+      {:ok, updated_state}
+    end
+  end
+
+  defp retry_pending_path_requests(state) do
+    now_ms = now_ms()
+
+    {pending_path_requests, updated_state} =
+      Enum.reduce(state.pending_path_requests, {%{}, state}, fn {destination_hash, entry},
+                                                                {pending_acc, acc_state} ->
+        case maybe_retry_pending_path_request(acc_state, destination_hash, entry, now_ms) do
+          {:drop, next_state} ->
+            {pending_acc, next_state}
+
+          {:keep, next_entry, next_state} ->
+            {Map.put(pending_acc, destination_hash, next_entry), next_state}
+        end
+      end)
+
+    %{updated_state | pending_path_requests: pending_path_requests}
+  end
+
+  defp maybe_retry_pending_path_request(state, _destination_hash, entry, now_ms)
+       when is_integer(now_ms) do
+    cond do
+      pending_path_request_expired?(entry, now_ms) ->
+        {:drop, state}
+
+      is_nil(entry.next_retry_at_ms) or now_ms < entry.next_retry_at_ms ->
+        {:keep, entry, state}
+
+      entry.retries_sent >= state.path_request_retry_count ->
+        {:keep, %{entry | next_retry_at_ms: nil}, state}
+
+      true ->
+        retry_pending_path_request(state, entry, now_ms)
+    end
+  end
+
+  defp retry_pending_path_request(state, entry, now_ms) do
+    request_tag = :crypto.strong_rand_bytes(@truncated_hash_len)
+
+    case emit_path_request(
+           state,
+           entry.interface,
+           entry.destination_hash,
+           entry.requester_hash,
+           request_tag,
+           []
+         ) do
+      {:ok, updated_state} ->
+        retries_sent = entry.retries_sent + 1
+
+        updated_entry = %{
+          entry
+          | request_tag: request_tag,
+            last_sent_at_ms: now_ms,
+            next_retry_at_ms: next_retry_at_ms(state, now_ms, retries_sent),
+            retries_sent: retries_sent
+        }
+
+        {:keep, updated_entry, updated_state}
+
+      {:error, _reason} ->
+        deferred_entry = %{entry | next_retry_at_ms: now_ms + 1_000}
+        {:keep, deferred_entry, state}
+    end
+  end
+
+  defp next_retry_at_ms(state, now_ms, retries_sent)
+       when is_integer(now_ms) and is_integer(retries_sent) do
+    if retries_sent < state.path_request_retry_count do
+      retry_delay_ms =
+        state.path_request_retry_base_seconds *
+          Integer.pow(state.path_request_retry_backoff_factor, retries_sent) * 1_000
+
+      now_ms + retry_delay_ms
+    else
+      nil
+    end
+  end
+
+  defp expire_pending_path_requests(pending_path_requests, now_ms)
+       when is_map(pending_path_requests) and is_integer(now_ms) do
+    pending_path_requests
+    |> Enum.reject(fn {_destination_hash, entry} ->
+      pending_path_request_expired?(entry, now_ms)
+    end)
+    |> Map.new()
+  end
+
+  defp pending_path_request_expired?(%{expires_at_ms: expires_at_ms}, now_ms)
+       when is_integer(expires_at_ms) and is_integer(now_ms),
+       do: now_ms >= expires_at_ms
+
+  defp pending_path_request_expired?(_entry, _now_ms), do: false
+
+  defp remember_inbound_path_request(state, ingress_interface, path_request) do
+    request_key = Pathfinder.request_key(path_request.destination_hash, path_request.request_tag)
+    now_ms = now_ms()
+    ttl_ms = state.path_request_duplicate_ttl_seconds * 1_000
+
+    case Map.get(state.seen_path_requests, request_key) do
+      %{updated_at_ms: updated_at_ms} ->
+        if now_ms - updated_at_ms < ttl_ms do
+          {:duplicate, state}
+        else
+          {:new,
+           put_in(state.seen_path_requests[request_key], %{
+             interface: ingress_interface,
+             updated_at_ms: now_ms
+           })}
+        end
+
+      _ ->
+        {:new,
+         put_in(state.seen_path_requests[request_key], %{
+           interface: ingress_interface,
+           updated_at_ms: now_ms
+         })}
+    end
+  end
+
+  defp remember_path_request_key(state, destination_hash, request_tag, interface)
+       when is_binary(destination_hash) and is_binary(request_tag) do
+    request_key = Pathfinder.request_key(destination_hash, request_tag)
+
+    put_in(state.seen_path_requests[request_key], %{
+      interface: interface,
+      updated_at_ms: now_ms()
+    })
+  end
+
+  defp remember_path_request_key(state, _destination_hash, _request_tag, _interface), do: state
+
+  defp expire_seen_path_requests(seen_path_requests, now_ms, ttl_seconds)
+       when is_map(seen_path_requests) and is_integer(now_ms) and is_integer(ttl_seconds) and
+              ttl_seconds > 0 do
+    ttl_ms = ttl_seconds * 1_000
+
+    seen_path_requests
+    |> Enum.reject(fn {_request_key, %{updated_at_ms: updated_at_ms}} ->
+      now_ms - updated_at_ms >= ttl_ms
+    end)
+    |> Map.new()
+  end
+
+  defp expire_seen_path_requests(seen_path_requests, _now_ms, _ttl_seconds),
+    do: seen_path_requests
+
   defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
   defp normalize_positive_integer(_value, default), do: default
+
+  defp normalize_non_negative_integer(value, _default) when is_integer(value) and value >= 0,
+    do: value
+
+  defp normalize_non_negative_integer(_value, default), do: default
 
   defp validate_ifac(ifac) when ifac in [:open, :auth], do: :ok
   defp validate_ifac(_ifac), do: {:error, :invalid_ifac}
@@ -1268,5 +1628,9 @@ defmodule Reticulum.Transport do
 
   defp schedule_path_maintenance(interval_seconds) do
     Process.send_after(self(), :path_maintenance, interval_seconds * 1_000)
+  end
+
+  defp schedule_path_request_retry_check do
+    Process.send_after(self(), :path_request_retry_check, @path_request_retry_check_interval_ms)
   end
 end

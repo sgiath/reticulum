@@ -84,6 +84,11 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - `routing_max_hops` caps transit forwarding, announce rebroadcasts, and forwarded path requests.
 - `announce_forwarding = true | false` enables or disables rebroadcasting remote announces onto other interfaces.
 - `path_request_forwarding = true | false` enables or disables forwarding remote path requests onto other interfaces.
+- `path_request_timeout_seconds` controls how long locally-originated path requests stay pending before they are dropped.
+- `path_request_retry_count`, `path_request_retry_base_seconds`, and `path_request_retry_backoff_factor` tune local path request retries.
+- `path_request_min_interval_seconds` suppresses duplicate local requests on the same interface while one is still fresh.
+- `path_request_duplicate_ttl_seconds` suppresses duplicate forwarded path requests that loop back through the topology.
+- `path_request_fanout` caps how many healthy non-ingress interfaces a forwarded path request is rebroadcast onto.
 
 Route selection currently prefers healthy interfaces first, then lower hop counts, then fresher path updates.
 Interface health is intentionally minimal in this phase and only requires the interface process to still be alive.

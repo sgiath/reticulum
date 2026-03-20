@@ -14,6 +14,13 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       routing_max_hops = 8
       announce_forwarding = false
       path_request_forwarding = false
+      path_request_timeout_seconds = 12
+      path_request_retry_count = 2
+      path_request_retry_base_seconds = 3
+      path_request_retry_backoff_factor = 3
+      path_request_min_interval_seconds = 9
+      path_request_duplicate_ttl_seconds = 11
+      path_request_fanout = 4
       ratchet_expiry_seconds = 900
 
       [interfaces.link]
@@ -32,6 +39,13 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
     assert bootstrap.node_opts[:routing_max_hops] == 8
     assert bootstrap.node_opts[:announce_forwarding] == false
     assert bootstrap.node_opts[:path_request_forwarding] == false
+    assert bootstrap.node_opts[:path_request_timeout_seconds] == 12
+    assert bootstrap.node_opts[:path_request_retry_count] == 2
+    assert bootstrap.node_opts[:path_request_retry_base_seconds] == 3
+    assert bootstrap.node_opts[:path_request_retry_backoff_factor] == 3
+    assert bootstrap.node_opts[:path_request_min_interval_seconds] == 9
+    assert bootstrap.node_opts[:path_request_duplicate_ttl_seconds] == 11
+    assert bootstrap.node_opts[:path_request_fanout] == 4
     assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
     assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
     assert opts[:ifac_netname] == "mesh-alpha"
