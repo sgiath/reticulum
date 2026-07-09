@@ -26,6 +26,12 @@ defmodule Reticulum.Node.Bootstrap do
     :path_request_min_interval_seconds,
     :path_request_duplicate_ttl_seconds,
     :path_request_fanout,
+    :interface_queue_limit,
+    :interface_backpressure,
+    :interface_rate_limit_bytes_per_second,
+    :interface_rate_limit_packets_per_second,
+    :interface_rate_limit_burst_bytes,
+    :interface_rate_limit_burst_packets,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -82,8 +88,8 @@ defmodule Reticulum.Node.Bootstrap do
     end)
   end
 
-  defp start_interface(node_name, %{name: name, type: :udp, opts: opts}) do
-    case Node.start_udp_interface(node_name, Keyword.put(opts, :name, name)) do
+  defp start_interface(node_name, %{name: name, module: module, opts: opts}) do
+    case Node.start_interface(node_name, module, Keyword.put(opts, :name, name)) do
       {:ok, _pid} -> :ok
       {:error, reason} -> {:error, {:interface_start_failed, name, reason}}
     end

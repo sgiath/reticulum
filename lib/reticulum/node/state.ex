@@ -44,6 +44,8 @@ defmodule Reticulum.Node.State do
           pid: pid(),
           module: module(),
           meta: map(),
+          stats: map(),
+          health: map(),
           updated_at: integer()
         }
 
@@ -52,7 +54,7 @@ defmodule Reticulum.Node.State do
           direction: :inbound | :outbound,
           interface: atom(),
           payload: binary(),
-          endpoint: {tuple(), non_neg_integer()},
+          endpoint: {tuple(), non_neg_integer()} | nil,
           at: integer(),
           node: atom()
         }
@@ -143,6 +145,10 @@ defmodule Reticulum.Node.State do
   def interface(server, name), do: GenServer.call(server, {:interface, name})
 
   def interfaces(server), do: GenServer.call(server, :interfaces)
+
+  def update_interface(server, name, attrs) when is_map(attrs) do
+    GenServer.call(server, {:update_interface, name, attrs})
+  end
 
   def subscribe_frames(server, pid \\ self()),
     do: GenServer.call(server, {:subscribe_frames, pid})
@@ -426,6 +432,8 @@ defmodule Reticulum.Node.State do
             pid: pid,
             module: module,
             meta: meta,
+            stats: %{},
+            health: %{},
             monitor_ref: ref,
             updated_at: System.system_time(:second)
           }
@@ -469,6 +477,22 @@ defmodule Reticulum.Node.State do
       |> Enum.sort_by(& &1.name)
 
     {:reply, {:ok, interfaces}, state}
+  end
+
+  def handle_call({:update_interface, name, attrs}, _from, state) do
+    reply =
+      cond do
+        not is_atom(name) ->
+          {:error, :invalid_interface_name}
+
+        not is_map(attrs) ->
+          {:error, :invalid_interface_update}
+
+        true ->
+          update_interface_entry(state.tables.interfaces, name, attrs)
+      end
+
+    {:reply, reply, state}
   end
 
   def handle_call({:subscribe_frames, pid}, _from, state) do
@@ -642,6 +666,38 @@ defmodule Reticulum.Node.State do
     else
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp update_interface_entry(table, name, attrs) do
+    case :ets.lookup(table, name) do
+      [{^name, entry}] ->
+        updated_entry =
+          entry
+          |> merge_interface_entry(attrs)
+          |> Map.put(:updated_at, System.system_time(:second))
+
+        true = :ets.insert(table, {name, updated_entry})
+        {:ok, Map.delete(updated_entry, :monitor_ref)}
+
+      [] ->
+        {:error, :unknown_interface}
+    end
+  end
+
+  defp merge_interface_entry(entry, attrs) do
+    Map.merge(entry, attrs, fn
+      :meta, current, update when is_map(current) and is_map(update) ->
+        Map.merge(current, update)
+
+      :stats, current, update when is_map(current) and is_map(update) ->
+        Map.merge(current, update)
+
+      :health, current, update when is_map(current) and is_map(update) ->
+        Map.merge(current, update)
+
+      _key, _current, update ->
+        update
+    end)
   end
 
   defp parse_local_destination_opts(opts) do

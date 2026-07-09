@@ -32,6 +32,12 @@ defmodule Reticulum.Node.Config do
           path_request_min_interval_seconds: pos_integer(),
           path_request_duplicate_ttl_seconds: pos_integer(),
           path_request_fanout: pos_integer(),
+          interface_queue_limit: pos_integer(),
+          interface_backpressure: :reject | :drop_newest | :drop_oldest,
+          interface_rate_limit_bytes_per_second: pos_integer() | nil,
+          interface_rate_limit_packets_per_second: pos_integer() | nil,
+          interface_rate_limit_burst_bytes: pos_integer() | nil,
+          interface_rate_limit_burst_packets: pos_integer() | nil,
           receipt_timeout_seconds: pos_integer(),
           receipt_retention_seconds: pos_integer(),
           ratchet_expiry_seconds: pos_integer()
@@ -57,6 +63,12 @@ defmodule Reticulum.Node.Config do
     :path_request_min_interval_seconds,
     :path_request_duplicate_ttl_seconds,
     :path_request_fanout,
+    :interface_queue_limit,
+    :interface_backpressure,
+    :interface_rate_limit_bytes_per_second,
+    :interface_rate_limit_packets_per_second,
+    :interface_rate_limit_burst_bytes,
+    :interface_rate_limit_burst_packets,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -81,6 +93,12 @@ defmodule Reticulum.Node.Config do
     :path_request_min_interval_seconds,
     :path_request_duplicate_ttl_seconds,
     :path_request_fanout,
+    :interface_queue_limit,
+    :interface_backpressure,
+    :interface_rate_limit_bytes_per_second,
+    :interface_rate_limit_packets_per_second,
+    :interface_rate_limit_burst_bytes,
+    :interface_rate_limit_burst_packets,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -162,6 +180,33 @@ defmodule Reticulum.Node.Config do
              Keyword.get(opts, :path_request_fanout, 2),
              :path_request_fanout
            ),
+         {:ok, interface_queue_limit} <-
+           validate_positive_integer(
+             Keyword.get(opts, :interface_queue_limit, 64),
+             :interface_queue_limit
+           ),
+         {:ok, interface_backpressure} <-
+           validate_interface_backpressure(Keyword.get(opts, :interface_backpressure, :reject)),
+         {:ok, interface_rate_limit_bytes_per_second} <-
+           validate_optional_positive_integer(
+             Keyword.get(opts, :interface_rate_limit_bytes_per_second),
+             :interface_rate_limit_bytes_per_second
+           ),
+         {:ok, interface_rate_limit_packets_per_second} <-
+           validate_optional_positive_integer(
+             Keyword.get(opts, :interface_rate_limit_packets_per_second),
+             :interface_rate_limit_packets_per_second
+           ),
+         {:ok, interface_rate_limit_burst_bytes} <-
+           validate_optional_positive_integer(
+             Keyword.get(opts, :interface_rate_limit_burst_bytes),
+             :interface_rate_limit_burst_bytes
+           ),
+         {:ok, interface_rate_limit_burst_packets} <-
+           validate_optional_positive_integer(
+             Keyword.get(opts, :interface_rate_limit_burst_packets),
+             :interface_rate_limit_burst_packets
+           ),
          {:ok, receipt_timeout_seconds} <-
            validate_positive_integer(
              Keyword.get(opts, :receipt_timeout_seconds, 10),
@@ -198,6 +243,12 @@ defmodule Reticulum.Node.Config do
          path_request_min_interval_seconds: path_request_min_interval_seconds,
          path_request_duplicate_ttl_seconds: path_request_duplicate_ttl_seconds,
          path_request_fanout: path_request_fanout,
+         interface_queue_limit: interface_queue_limit,
+         interface_backpressure: interface_backpressure,
+         interface_rate_limit_bytes_per_second: interface_rate_limit_bytes_per_second,
+         interface_rate_limit_packets_per_second: interface_rate_limit_packets_per_second,
+         interface_rate_limit_burst_bytes: interface_rate_limit_burst_bytes,
+         interface_rate_limit_burst_packets: interface_rate_limit_burst_packets,
          receipt_timeout_seconds: receipt_timeout_seconds,
          receipt_retention_seconds: receipt_retention_seconds,
          ratchet_expiry_seconds: ratchet_expiry_seconds
@@ -232,6 +283,12 @@ defmodule Reticulum.Node.Config do
             :path_request_min_interval_seconds,
             :path_request_duplicate_ttl_seconds,
             :path_request_fanout,
+            :interface_queue_limit,
+            :interface_backpressure,
+            :interface_rate_limit_bytes_per_second,
+            :interface_rate_limit_packets_per_second,
+            :interface_rate_limit_burst_bytes,
+            :interface_rate_limit_burst_packets,
             :receipt_timeout_seconds,
             :receipt_retention_seconds,
             :ratchet_expiry_seconds
@@ -261,6 +318,14 @@ defmodule Reticulum.Node.Config do
 
   defp validate_boolean(_value, :path_request_forwarding),
     do: {:error, :invalid_path_request_forwarding}
+
+  defp validate_interface_backpressure(value) when value in [:reject, :drop_newest, :drop_oldest],
+    do: {:ok, value}
+
+  defp validate_interface_backpressure("reject"), do: {:ok, :reject}
+  defp validate_interface_backpressure("drop_newest"), do: {:ok, :drop_newest}
+  defp validate_interface_backpressure("drop_oldest"), do: {:ok, :drop_oldest}
+  defp validate_interface_backpressure(_value), do: {:error, :invalid_interface_backpressure}
 
   defp validate_non_negative_integer(value, _field) when is_integer(value) and value >= 0,
     do: {:ok, value}
@@ -315,6 +380,9 @@ defmodule Reticulum.Node.Config do
   defp validate_positive_integer(_value, :path_request_fanout),
     do: {:error, :invalid_path_request_fanout}
 
+  defp validate_positive_integer(_value, :interface_queue_limit),
+    do: {:error, :invalid_interface_queue_limit}
+
   defp validate_positive_integer(_value, :receipt_timeout_seconds),
     do: {:error, :invalid_receipt_timeout_seconds}
 
@@ -323,4 +391,21 @@ defmodule Reticulum.Node.Config do
 
   defp validate_positive_integer(_value, :ratchet_expiry_seconds),
     do: {:error, :invalid_ratchet_expiry_seconds}
+
+  defp validate_optional_positive_integer(nil, _field), do: {:ok, nil}
+
+  defp validate_optional_positive_integer(value, _field) when is_integer(value) and value > 0,
+    do: {:ok, value}
+
+  defp validate_optional_positive_integer(_value, :interface_rate_limit_bytes_per_second),
+    do: {:error, :invalid_interface_rate_limit_bytes_per_second}
+
+  defp validate_optional_positive_integer(_value, :interface_rate_limit_packets_per_second),
+    do: {:error, :invalid_interface_rate_limit_packets_per_second}
+
+  defp validate_optional_positive_integer(_value, :interface_rate_limit_burst_bytes),
+    do: {:error, :invalid_interface_rate_limit_burst_bytes}
+
+  defp validate_optional_positive_integer(_value, :interface_rate_limit_burst_packets),
+    do: {:error, :invalid_interface_rate_limit_burst_packets}
 end

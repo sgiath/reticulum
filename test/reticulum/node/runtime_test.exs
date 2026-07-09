@@ -29,6 +29,12 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.path_request_min_interval_seconds == 20
       assert config.path_request_duplicate_ttl_seconds == 15
       assert config.path_request_fanout == 2
+      assert config.interface_queue_limit == 64
+      assert config.interface_backpressure == :reject
+      assert config.interface_rate_limit_bytes_per_second == nil
+      assert config.interface_rate_limit_packets_per_second == nil
+      assert config.interface_rate_limit_burst_bytes == nil
+      assert config.interface_rate_limit_burst_packets == nil
       assert config.receipt_timeout_seconds == 10
       assert config.receipt_retention_seconds == 60
       assert config.ratchet_expiry_seconds == 2_592_000
@@ -69,6 +75,12 @@ defmodule Reticulum.Node.RuntimeTest do
            path_request_min_interval_seconds: 9,
            path_request_duplicate_ttl_seconds: 11,
            path_request_fanout: 4,
+           interface_queue_limit: 8,
+           interface_backpressure: :drop_oldest,
+           interface_rate_limit_bytes_per_second: 2_048,
+           interface_rate_limit_packets_per_second: 16,
+           interface_rate_limit_burst_bytes: 4_096,
+           interface_rate_limit_burst_packets: 32,
            receipt_timeout_seconds: 8,
            receipt_retention_seconds: 20,
            ratchet_expiry_seconds: 900}
@@ -96,6 +108,12 @@ defmodule Reticulum.Node.RuntimeTest do
       assert config.path_request_min_interval_seconds == 9
       assert config.path_request_duplicate_ttl_seconds == 11
       assert config.path_request_fanout == 4
+      assert config.interface_queue_limit == 8
+      assert config.interface_backpressure == :drop_oldest
+      assert config.interface_rate_limit_bytes_per_second == 2_048
+      assert config.interface_rate_limit_packets_per_second == 16
+      assert config.interface_rate_limit_burst_bytes == 4_096
+      assert config.interface_rate_limit_burst_packets == 32
       assert config.receipt_timeout_seconds == 8
       assert config.receipt_retention_seconds == 20
       assert config.ratchet_expiry_seconds == 900
@@ -145,6 +163,24 @@ defmodule Reticulum.Node.RuntimeTest do
 
       assert Node.start_link(path_request_fanout: 0) ==
                {:error, :invalid_path_request_fanout}
+
+      assert Node.start_link(interface_queue_limit: 0) ==
+               {:error, :invalid_interface_queue_limit}
+
+      assert Node.start_link(interface_backpressure: :block) ==
+               {:error, :invalid_interface_backpressure}
+
+      assert Node.start_link(interface_rate_limit_bytes_per_second: 0) ==
+               {:error, :invalid_interface_rate_limit_bytes_per_second}
+
+      assert Node.start_link(interface_rate_limit_packets_per_second: 0) ==
+               {:error, :invalid_interface_rate_limit_packets_per_second}
+
+      assert Node.start_link(interface_rate_limit_burst_bytes: 0) ==
+               {:error, :invalid_interface_rate_limit_burst_bytes}
+
+      assert Node.start_link(interface_rate_limit_burst_packets: 0) ==
+               {:error, :invalid_interface_rate_limit_burst_packets}
 
       assert Node.start_link(receipt_timeout_seconds: 0) ==
                {:error, :invalid_receipt_timeout_seconds}

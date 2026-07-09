@@ -2,114 +2,84 @@ defmodule Reticulum.Interface.UDP do
   @moduledoc """
   UDP interface implementation for raw Reticulum frame exchange.
   """
-  use GenServer
 
   @behaviour Reticulum.Interface
 
   alias Reticulum.Interface.IFAC
-  alias Reticulum.Node.State
 
   @type ip_address :: :inet.ip_address()
 
   @type state :: %{
           ifac: map() | nil,
           socket: port(),
-          name: atom(),
-          node_name: atom(),
-          state_server: GenServer.server(),
           listen_ip: ip_address(),
           listen_port: non_neg_integer(),
           default_peer_ip: ip_address() | nil,
           default_peer_port: non_neg_integer() | nil
         }
 
-  def child_spec(opts) do
-    node_name = Keyword.fetch!(opts, :node_name)
-    name = Keyword.fetch!(opts, :name)
-
-    %{
-      id: {__MODULE__, node_name, name},
-      start: {__MODULE__, :start_link, [opts]},
-      type: :worker,
-      restart: :permanent,
-      shutdown: 5_000
-    }
-  end
+  @impl true
+  def init(opts) when is_list(opts), do: init_adapter(opts)
 
   @impl true
-  def start_link(opts) when is_list(opts) do
-    GenServer.start_link(__MODULE__, opts)
-  end
-
-  @impl true
-  def send_frame(server, payload, opts \\ []) when is_list(opts) do
+  def send_frame(payload, opts, state) when is_list(opts) do
     payload = IO.iodata_to_binary(payload)
-    GenServer.call(server, {:send_frame, payload, opts})
-  end
 
-  @impl true
-  def prepare_outbound(server, payload, opts \\ []) when is_binary(payload) and is_list(opts) do
-    GenServer.call(server, {:prepare_outbound, payload, opts})
-  end
-
-  @impl true
-  def normalize_inbound(server, payload) when is_binary(payload) do
-    GenServer.call(server, {:normalize_inbound, payload})
-  end
-
-  @impl true
-  def init(opts) do
-    with {:ok, base_state} <- parse_opts(opts),
-         {:ok, socket, listen_port} <- open_socket(base_state, opts),
-         :ok <- register_interface(base_state, listen_port) do
-      {:ok, %{base_state | socket: socket, listen_port: listen_port}}
-    else
-      {:error, reason} -> {:stop, reason}
-    end
-  end
-
-  @impl true
-  def handle_call({:send_frame, payload, opts}, _from, state) do
     with {:ok, ip, port} <- resolve_endpoint(opts, state),
          :ok <- :gen_udp.send(state.socket, ip, port, payload) do
-      publish_frame(state, :outbound, payload, ip, port)
-      {:reply, :ok, state}
+      {:ok, state, {ip, port}}
     else
-      {:error, reason} -> {:reply, {:error, reason}, state}
-      {:error, reason, _rest} -> {:reply, {:error, reason}, state}
+      {:error, reason} -> {:error, reason, state}
+      {:error, reason, _rest} -> {:error, reason, state}
     end
   end
 
-  def handle_call({:prepare_outbound, payload, opts}, _from, state) do
-    {:reply, IFAC.prepare_outbound(payload, state.ifac, opts), state}
+  @impl true
+  def prepare_outbound(payload, opts, state) when is_binary(payload) and is_list(opts) do
+    case IFAC.prepare_outbound(payload, state.ifac, opts) do
+      {:ok, frame_payload} -> {:ok, frame_payload, state}
+      {:error, reason} -> {:error, reason, state}
+    end
   end
 
-  def handle_call({:normalize_inbound, payload}, _from, state) do
-    {:reply, IFAC.normalize_inbound(payload, state.ifac), state}
+  @impl true
+  def normalize_inbound(payload, state) when is_binary(payload) do
+    case IFAC.normalize_inbound(payload, state.ifac) do
+      {:ok, frame_payload} -> {:ok, frame_payload, state}
+      {:error, reason} -> {:error, reason, state}
+    end
   end
 
   @impl true
   def handle_info({:udp, socket, ip, port, payload}, %{socket: socket} = state) do
-    publish_frame(state, :inbound, payload, ip, port)
-    {:noreply, state}
+    {:noreply, state, [{:inbound_frame, payload, {ip, port}}]}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{socket: socket, state_server: state_server, name: name}) do
-    _ = State.unregister_interface(state_server, name)
+  def health(_state), do: %{adapter_status: :up}
+
+  @impl true
+  def terminate(_reason, %{socket: socket}) do
     :ok = :gen_udp.close(socket)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
 
+  defp init_adapter(opts) do
+    with {:ok, base_state} <- parse_opts(opts),
+         {:ok, socket, listen_port} <- open_socket(base_state, opts) do
+      state = %{base_state | socket: socket, listen_port: listen_port}
+      {:ok, state, interface_meta(state)}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp parse_opts(opts) do
-    with {:ok, name} <- validate_name(Keyword.get(opts, :name)),
-         {:ok, node_name} <- validate_node_name(Keyword.get(opts, :node_name)),
-         {:ok, state_server} <- validate_state_server(Keyword.get(opts, :state_server)),
-         {:ok, listen_ip} <-
+    with {:ok, listen_ip} <-
            validate_ip(Keyword.get(opts, :listen_ip, {127, 0, 0, 1}), :listen_ip),
          {:ok, listen_port} <-
            validate_port(Keyword.get(opts, :listen_port, 0), :listen_port, allow_zero: true),
@@ -122,9 +92,6 @@ defmodule Reticulum.Interface.UDP do
        %{
          ifac: ifac,
          socket: nil,
-         name: name,
-         node_name: node_name,
-         state_server: state_server,
          listen_ip: listen_ip,
          listen_port: listen_port,
          default_peer_ip: default_peer_ip,
@@ -162,25 +129,6 @@ defmodule Reticulum.Interface.UDP do
     end
   end
 
-  defp register_interface(base_state, listen_port) do
-    meta =
-      %{
-        listen_ip: base_state.listen_ip,
-        listen_port: listen_port,
-        default_peer_ip: base_state.default_peer_ip,
-        default_peer_port: base_state.default_peer_port
-      }
-      |> Map.merge(IFAC.summary(base_state.ifac))
-
-    State.register_interface(
-      base_state.state_server,
-      base_state.name,
-      self(),
-      __MODULE__,
-      meta
-    )
-  end
-
   defp resolve_endpoint(opts, state) do
     with {:ok, ip} <-
            validate_optional_ip(Keyword.get(opts, :ip, state.default_peer_ip), :ip),
@@ -192,29 +140,14 @@ defmodule Reticulum.Interface.UDP do
     end
   end
 
-  defp publish_frame(state, direction, payload, ip, port) do
-    State.publish_frame(state.state_server, %{
-      direction: direction,
-      interface: state.name,
-      payload: payload,
-      endpoint: {ip, port},
-      at: System.system_time(:millisecond),
-      node: state.node_name
-    })
-  end
-
-  defp validate_name(name) when is_atom(name), do: {:ok, name}
-  defp validate_name(_name), do: {:error, :invalid_interface_name}
-
-  defp validate_node_name(node_name) when is_atom(node_name), do: {:ok, node_name}
-  defp validate_node_name(_node_name), do: {:error, :invalid_node_name}
-
-  defp validate_state_server(state_server) do
-    if is_pid(state_server) or is_tuple(state_server) do
-      {:ok, state_server}
-    else
-      {:error, :invalid_state_server}
-    end
+  defp interface_meta(state) do
+    %{
+      listen_ip: state.listen_ip,
+      listen_port: state.listen_port,
+      default_peer_ip: state.default_peer_ip,
+      default_peer_port: state.default_peer_port
+    }
+    |> Map.merge(IFAC.summary(state.ifac))
   end
 
   defp validate_ip(ip, _field) when is_tuple(ip) and tuple_size(ip) in [4, 8], do: {:ok, ip}

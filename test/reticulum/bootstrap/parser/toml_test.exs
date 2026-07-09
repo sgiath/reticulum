@@ -21,6 +21,9 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       path_request_min_interval_seconds = 9
       path_request_duplicate_ttl_seconds = 11
       path_request_fanout = 4
+      interface_queue_limit = 8
+      interface_backpressure = "drop_oldest"
+      interface_rate_limit_packets_per_second = 16
       ratchet_expiry_seconds = 900
 
       [interfaces.link]
@@ -30,6 +33,8 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
       ifac_netname = "mesh-alpha"
       ifac_netkey = "phase7-secret"
       ifac_size_bits = 128
+      queue_limit = 2
+      backpressure = "drop_newest"
       """)
 
     assert {:ok, bootstrap} = TOML.parse_file(config_path)
@@ -46,11 +51,16 @@ defmodule Reticulum.Bootstrap.Parser.TOMLTest do
     assert bootstrap.node_opts[:path_request_min_interval_seconds] == 9
     assert bootstrap.node_opts[:path_request_duplicate_ttl_seconds] == 11
     assert bootstrap.node_opts[:path_request_fanout] == 4
+    assert bootstrap.node_opts[:interface_queue_limit] == 8
+    assert bootstrap.node_opts[:interface_backpressure] == :drop_oldest
+    assert bootstrap.node_opts[:interface_rate_limit_packets_per_second] == 16
     assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
-    assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
+    assert [%{name: :link, module: Reticulum.Interface.UDP, opts: opts}] = bootstrap.interfaces
     assert opts[:ifac_netname] == "mesh-alpha"
     assert opts[:ifac_netkey] == "phase7-secret"
     assert opts[:ifac_size] == 16
+    assert opts[:queue_limit] == 2
+    assert opts[:backpressure] == :drop_newest
   end
 
   test "returns not found error when config path does not exist" do

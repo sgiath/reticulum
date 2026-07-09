@@ -3,18 +3,33 @@ defmodule Reticulum.Interface.Supervisor do
   Helpers for managing runtime interfaces under `Reticulum.Node`.
   """
 
+  alias Reticulum.Interface.Runtime
   alias Reticulum.Interface.UDP
   alias Reticulum.Node
   alias Reticulum.Node.State
 
+  @doc "Starts interface `adapter` under `node_name`."
+  def start_interface(node_name, adapter, opts) when is_atom(node_name) and is_list(opts) do
+    with {:ok, config} <- Node.config(node_name) do
+      child_opts =
+        config
+        |> interface_defaults()
+        |> Keyword.merge(opts)
+        |> Keyword.merge(
+          adapter: adapter,
+          node_name: node_name,
+          state_server: Node.state_server(node_name)
+        )
+
+      node_name
+      |> Node.interface_supervisor()
+      |> DynamicSupervisor.start_child({Runtime, child_opts})
+    end
+  end
+
   @doc "Starts a UDP interface under `node_name`."
   def start_udp(node_name, opts) when is_atom(node_name) and is_list(opts) do
-    child_opts =
-      Keyword.merge(opts, node_name: node_name, state_server: Node.state_server(node_name))
-
-    node_name
-    |> Node.interface_supervisor()
-    |> DynamicSupervisor.start_child({UDP, child_opts})
+    start_interface(node_name, UDP, opts)
   end
 
   @doc "Stops interface `name` under `node_name`."
@@ -54,8 +69,8 @@ defmodule Reticulum.Interface.Supervisor do
       |> State.interface(name)
 
     case interface do
-      {:ok, %{pid: pid, module: module}} ->
-        module.send_frame(pid, payload, opts)
+      {:ok, %{pid: pid}} ->
+        Runtime.send_frame(pid, payload, opts)
 
       :error ->
         {:error, :unknown_interface}
@@ -69,7 +84,7 @@ defmodule Reticulum.Interface.Supervisor do
   def prepare_outbound(node_name, name, payload, opts \\ [])
       when is_atom(node_name) and is_atom(name) and is_binary(payload) and is_list(opts) do
     case fetch_interface(node_name, name) do
-      {:ok, %{pid: pid, module: module}} -> module.prepare_outbound(pid, payload, opts)
+      {:ok, %{pid: pid}} -> Runtime.prepare_outbound(pid, payload, opts)
       :error -> {:error, :unknown_interface}
       other -> other
     end
@@ -79,10 +94,22 @@ defmodule Reticulum.Interface.Supervisor do
   def normalize_inbound(node_name, name, payload)
       when is_atom(node_name) and is_atom(name) and is_binary(payload) do
     case fetch_interface(node_name, name) do
-      {:ok, %{pid: pid, module: module}} -> module.normalize_inbound(pid, payload)
+      {:ok, %{pid: pid}} -> Runtime.normalize_inbound(pid, payload)
       :error -> {:error, :unknown_interface}
       other -> other
     end
+  end
+
+  defp interface_defaults(config) do
+    [
+      queue_limit: config.interface_queue_limit,
+      backpressure: config.interface_backpressure,
+      rate_limit_bytes_per_second: config.interface_rate_limit_bytes_per_second,
+      rate_limit_packets_per_second: config.interface_rate_limit_packets_per_second,
+      rate_limit_burst_bytes: config.interface_rate_limit_burst_bytes,
+      rate_limit_burst_packets: config.interface_rate_limit_burst_packets
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp fetch_interface(node_name, name) do

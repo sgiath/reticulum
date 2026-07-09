@@ -20,6 +20,12 @@ path_request_retry_backoff_factor = 2
 path_request_min_interval_seconds = 20
 path_request_duplicate_ttl_seconds = 15
 path_request_fanout = 2
+interface_queue_limit = 64
+interface_backpressure = "reject"
+# interface_rate_limit_bytes_per_second = 65536
+# interface_rate_limit_packets_per_second = 128
+# interface_rate_limit_burst_bytes = 131072
+# interface_rate_limit_burst_packets = 256
 receipt_timeout_seconds = 10
 receipt_retention_seconds = 60
 ratchet_expiry_seconds = 2592000
@@ -36,9 +42,13 @@ default_peer_port = 43002
 # ifac_netname = "mesh-alpha"
 # ifac_netkey = "change-me"
 # ifac_size_bits = 128
+queue_limit = 32
+backpressure = "drop_oldest"
+# rate_limit_packets_per_second = 64
 
 [interfaces.backup]
 type = "udp"
 enabled = false
 listen_ip = "127.0.0.1"
 listen_port = 43003
+# module = "Reticulum.MyCustomInterface"

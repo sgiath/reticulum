@@ -12,8 +12,8 @@ defmodule Reticulum.Node do
   Runtime state is intentionally ephemeral: every node start begins with empty
   ETS tables. No table-backed state is restored from disk yet.
 
-  UDP interface wiring is available in this phase. Transport routing and
-  link/session management are added in later phases.
+  Interface workers are supervised OTP processes. Custom interface adapters can
+  plug into the runtime through `start_interface/3`.
   """
   use Supervisor
 
@@ -184,6 +184,17 @@ defmodule Reticulum.Node do
 
   @doc "Starts a UDP interface on the default node."
   def start_udp_interface(opts), do: start_udp_interface(@default_name, opts)
+
+  @doc "Starts interface adapter `adapter` on the default node."
+  def start_interface(adapter, opts) when is_atom(adapter) and is_list(opts) do
+    start_interface(@default_name, adapter, opts)
+  end
+
+  @doc "Starts interface adapter `adapter` on `node_name`."
+  def start_interface(node_name, adapter, opts)
+      when is_atom(node_name) and is_atom(adapter) and is_list(opts) do
+    InterfaceSupervisor.start_interface(node_name, adapter, opts)
+  end
 
   @doc "Starts a UDP interface on `node_name`."
   def start_udp_interface(node_name, opts) when is_atom(node_name) and is_list(opts) do

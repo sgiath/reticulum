@@ -90,14 +90,27 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 - `path_request_duplicate_ttl_seconds` suppresses duplicate forwarded path requests that loop back through the topology.
 - `path_request_fanout` caps how many healthy non-ingress interfaces a forwarded path request is rebroadcast onto.
 
-Route selection currently prefers healthy interfaces first, then lower hop counts, then fresher path updates.
-Interface health is intentionally minimal in this phase and only requires the interface process to still be alive.
+`[node]` also supports interface-runtime defaults.
 
-`[interfaces.<name>]` supports optional IFAC auth settings.
+- `interface_queue_limit` bounds per-interface outbound queue depth.
+- `interface_backpressure = "reject" | "drop_newest" | "drop_oldest"` controls queue overflow behavior.
+- `interface_rate_limit_bytes_per_second` and `interface_rate_limit_packets_per_second` bound sustained egress.
+- `interface_rate_limit_burst_bytes` and `interface_rate_limit_burst_packets` control token-bucket burst capacity.
+
+Route selection now prefers higher interface health scores first, then lower hop counts, then fresher path updates.
+Health scoring considers adapter status, queue pressure, and recent throttling/send failures.
+
+`[interfaces.<name>]` supports adapter selection, optional IFAC auth settings, and per-interface runtime overrides.
+
+- `type = "udp"` uses a built-in adapter.
+- `module = "Reticulum.MyCustomInterface"` loads a custom adapter module instead of a built-in alias.
+- `queue_limit`, `backpressure`, and `rate_limit_*` override the node-level interface defaults for one interface.
 
 - `ifac_netname` and/or `ifac_netkey` derive the shared IFAC identity for that interface.
 - `ifac_size_bits` controls truncated IFAC size in bits and must be a multiple of 8.
 - auth-enabled interfaces require IFAC-authenticated inbound frames and transmit authenticated frames by default.
+
+For imperative startup, built-ins still have helpers like `Reticulum.Node.start_udp_interface/2`, and custom adapters can be started with `Reticulum.Node.start_interface/3`.
 
 For imperative startup, pass `startup_lifecycle: YourModule` to
 `Reticulum.Node.start_link/1`. Lifecycle modules implement the

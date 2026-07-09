@@ -240,6 +240,15 @@ defmodule Reticulum.Node.StateTest do
     assert {:ok, registered} = State.interface(state_server, :alive)
     assert registered.name == :alive
     refute Map.has_key?(registered, :monitor_ref)
+
+    assert {:ok, updated} =
+             State.update_interface(state_server, :alive, %{
+               stats: %{queue_depth: 1},
+               health: %{score: 75, band: :healthy}
+             })
+
+    assert updated.stats.queue_depth == 1
+    assert updated.health.score == 75
     assert {:ok, [%{name: :alive}]} = State.interfaces(state_server)
 
     assert {:error, :unknown_interface} = State.unregister_interface(state_server, :unknown)

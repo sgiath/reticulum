@@ -555,8 +555,6 @@ defmodule Reticulum.Transport do
     %{state | pending_path_requests: Map.delete(state.pending_path_requests, destination_hash)}
   end
 
-  defp clear_pending_path_request(state, _destination_hash), do: state
-
   defp maybe_forward_announce(
          %{transport_enabled: true, announce_forwarding: true} = state,
          frame,
@@ -745,7 +743,7 @@ defmodule Reticulum.Transport do
   defp select_transit_interface(state, destination_hash, ingress_interface) do
     case State.path(state.state_server, destination_hash) do
       {:ok, %{interface: interface}} when is_atom(interface) and interface != ingress_interface ->
-        if interface_healthy?(state.state_server, interface) do
+        if interface_available?(state.state_server, interface) do
           {:ok, interface}
         else
           :error
@@ -758,8 +756,12 @@ defmodule Reticulum.Transport do
 
   defp maybe_store_path(state, destination_hash, next_hop, hops, interface)
        when is_binary(destination_hash) and is_binary(next_hop) and is_integer(hops) do
-    candidate = %{hops: hops, interface: interface, updated_at: System.system_time(:second)}
-    candidate_healthy = interface_healthy?(state.state_server, interface)
+    candidate = %{
+      hops: hops,
+      interface: interface,
+      updated_at: System.system_time(:second),
+      health_score: interface_health_score(state.state_server, interface)
+    }
 
     current_path =
       case State.path(state.state_server, destination_hash) do
@@ -767,18 +769,18 @@ defmodule Reticulum.Transport do
         _ -> nil
       end
 
-    current_healthy =
+    current_health_score =
       case current_path do
         %{interface: current_interface} ->
-          interface_healthy?(state.state_server, current_interface)
+          interface_health_score(state.state_server, current_interface)
 
         _ ->
-          false
+          0
       end
 
     if Routing.prefer_candidate?(candidate, current_path,
-         candidate_healthy: candidate_healthy,
-         current_healthy: current_healthy
+         candidate_health_score: candidate.health_score,
+         current_health_score: current_health_score
        ) do
       State.put_path(state.state_server, destination_hash, next_hop, hops, interface: interface)
     else
@@ -793,8 +795,11 @@ defmodule Reticulum.Transport do
     case State.interfaces(state.state_server) do
       {:ok, interfaces} ->
         interfaces
+        |> Enum.reject(&(&1.name == ingress_interface or not interface_available_record?(&1)))
+        |> Enum.sort_by(fn interface ->
+          {-interface_record_health_score(interface), interface.name}
+        end)
         |> Enum.map(& &1.name)
-        |> Enum.filter(&(&1 != ingress_interface and interface_healthy?(state.state_server, &1)))
 
       _ ->
         []
@@ -807,14 +812,33 @@ defmodule Reticulum.Transport do
     |> Enum.take(state.path_request_fanout)
   end
 
-  defp interface_healthy?(state_server, interface) when is_atom(interface) do
+  defp interface_health_score(state_server, interface) when is_atom(interface) do
     case State.interface(state_server, interface) do
-      {:ok, %{pid: pid}} when is_pid(pid) -> Process.alive?(pid)
+      {:ok, interface_record} -> interface_record_health_score(interface_record)
+      _ -> 0
+    end
+  end
+
+  defp interface_health_score(_state_server, _interface), do: 0
+
+  defp interface_available?(state_server, interface) when is_atom(interface) do
+    case State.interface(state_server, interface) do
+      {:ok, interface_record} -> interface_available_record?(interface_record)
       _ -> false
     end
   end
 
-  defp interface_healthy?(_state_server, _interface), do: false
+  defp interface_available_record?(%{health: %{band: band}}) when band != :unavailable, do: true
+  defp interface_available_record?(%{pid: pid}) when is_pid(pid), do: Process.alive?(pid)
+  defp interface_available_record?(_record), do: false
+
+  defp interface_record_health_score(%{health: %{score: score}}) when is_integer(score), do: score
+
+  defp interface_record_health_score(%{pid: pid}) when is_pid(pid) do
+    if Process.alive?(pid), do: 100, else: 0
+  end
+
+  defp interface_record_health_score(_record), do: 0
 
   defp local_destination?(state_server, destination_hash) when is_binary(destination_hash) do
     match?({:ok, _}, State.local_destination(state_server, destination_hash))
@@ -876,8 +900,6 @@ defmodule Reticulum.Transport do
   defp local_control_packet?(%Packet{} = packet) do
     match?({:ok, _}, Pathfinder.parse_path_request_packet(packet))
   end
-
-  defp local_control_packet?(_packet), do: false
 
   defp expire_timestamp_map(entries, now, ttl_seconds)
        when is_map(entries) and is_integer(now) and is_integer(ttl_seconds) and ttl_seconds > 0 do
@@ -1211,8 +1233,6 @@ defmodule Reticulum.Transport do
   defp outbound_ifac_opts(_packet_or_raw, opts), do: opts
 
   defp encode_packet(%Packet{} = packet), do: {:ok, Packet.encode(packet)}
-  defp encode_packet(raw) when is_binary(raw), do: {:ok, raw}
-  defp encode_packet(_packet_or_raw), do: {:error, :invalid_packet}
 
   defp decode_packet(raw) when is_binary(raw) do
     try do

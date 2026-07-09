@@ -3,6 +3,7 @@ defmodule Reticulum.Transport.ObservabilityTest do
 
   alias Reticulum.Node
   alias Reticulum.Observability
+  alias Reticulum.TestSupport.TestInterface
 
   @loopback {127, 0, 0, 1}
 
@@ -74,6 +75,65 @@ defmodule Reticulum.Transport.ObservabilityTest do
       :ok = apply(:telemetry, :detach, [handler_id])
     else
       assert :ok = Observability.emit([:transport, :receipt, :tracked], %{count: 1}, %{})
+    end
+  end
+
+  test "emits telemetry events for interface health and queue updates when telemetry is available" do
+    if function_exported?(:telemetry, :attach_many, 4) do
+      handler_id = "reticulum-interface-observability-#{System.unique_integer([:positive])}"
+
+      events = [
+        [:reticulum, :interface, :health, :updated],
+        [:reticulum, :interface, :queue, :updated],
+        [:reticulum, :interface, :send, :throttled]
+      ]
+
+      :ok =
+        apply(:telemetry, :attach_many, [
+          handler_id,
+          events,
+          fn event, measurements, metadata, pid ->
+            send(pid, {:telemetry_event, event, measurements, metadata})
+          end,
+          self()
+        ])
+
+      node_name = Reticulum.Node.InterfaceObservability
+
+      start_supervised!(
+        {Node,
+         name: node_name,
+         storage_path: Path.join(System.tmp_dir!(), "reticulum-interface-observability")}
+      )
+
+      assert {:ok, _pid} =
+               Node.start_interface(node_name, TestInterface,
+                 name: :custom,
+                 test_pid: self(),
+                 queue_limit: 1,
+                 rate_limit_packets_per_second: 1,
+                 rate_limit_burst_packets: 1
+               )
+
+      assert_receive {:telemetry_event, [:reticulum, :interface, :health, :updated], _,
+                      %{node: ^node_name, interface: :custom}},
+                     1_000
+
+      assert_receive {:telemetry_event, [:reticulum, :interface, :queue, :updated], _,
+                      %{node: ^node_name, interface: :custom}},
+                     1_000
+
+      assert :ok = Node.send_frame(node_name, :custom, "first")
+      task = Task.async(fn -> Node.send_frame(node_name, :custom, "second") end)
+
+      assert_receive {:telemetry_event, [:reticulum, :interface, :send, :throttled], _,
+                      %{node: ^node_name, interface: :custom}},
+                     1_500
+
+      assert :ok = Task.await(task, 2_000)
+      :ok = apply(:telemetry, :detach, [handler_id])
+    else
+      assert :ok = Observability.emit([:interface, :health, :updated], %{score: 100}, %{})
     end
   end
 

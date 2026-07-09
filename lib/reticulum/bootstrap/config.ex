@@ -23,6 +23,12 @@ defmodule Reticulum.Bootstrap.Config do
     "path_request_min_interval_seconds",
     "path_request_duplicate_ttl_seconds",
     "path_request_fanout",
+    "interface_queue_limit",
+    "interface_backpressure",
+    "interface_rate_limit_bytes_per_second",
+    "interface_rate_limit_packets_per_second",
+    "interface_rate_limit_burst_bytes",
+    "interface_rate_limit_burst_packets",
     "receipt_timeout_seconds",
     "receipt_retention_seconds",
     "ratchet_expiry_seconds"
@@ -46,6 +52,12 @@ defmodule Reticulum.Bootstrap.Config do
     "path_request_min_interval_seconds" => :path_request_min_interval_seconds,
     "path_request_duplicate_ttl_seconds" => :path_request_duplicate_ttl_seconds,
     "path_request_fanout" => :path_request_fanout,
+    "interface_queue_limit" => :interface_queue_limit,
+    "interface_backpressure" => :interface_backpressure,
+    "interface_rate_limit_bytes_per_second" => :interface_rate_limit_bytes_per_second,
+    "interface_rate_limit_packets_per_second" => :interface_rate_limit_packets_per_second,
+    "interface_rate_limit_burst_bytes" => :interface_rate_limit_burst_bytes,
+    "interface_rate_limit_burst_packets" => :interface_rate_limit_burst_packets,
     "receipt_timeout_seconds" => :receipt_timeout_seconds,
     "receipt_retention_seconds" => :receipt_retention_seconds,
     "ratchet_expiry_seconds" => :ratchet_expiry_seconds
@@ -71,6 +83,12 @@ defmodule Reticulum.Bootstrap.Config do
     :path_request_min_interval_seconds,
     :path_request_duplicate_ttl_seconds,
     :path_request_fanout,
+    :interface_queue_limit,
+    :interface_backpressure,
+    :interface_rate_limit_bytes_per_second,
+    :interface_rate_limit_packets_per_second,
+    :interface_rate_limit_burst_bytes,
+    :interface_rate_limit_burst_packets,
     :receipt_timeout_seconds,
     :receipt_retention_seconds,
     :ratchet_expiry_seconds
@@ -79,21 +97,32 @@ defmodule Reticulum.Bootstrap.Config do
   @interface_option_keys [
     "enabled",
     "type",
+    "module",
     "listen_ip",
     "listen_port",
     "default_peer_ip",
     "default_peer_port",
     "ifac_netname",
     "ifac_netkey",
-    "ifac_size_bits"
+    "ifac_size_bits",
+    "queue_limit",
+    "backpressure",
+    "rate_limit_bytes_per_second",
+    "rate_limit_packets_per_second",
+    "rate_limit_burst_bytes",
+    "rate_limit_burst_packets"
   ]
+
+  @built_in_adapters %{
+    "udp" => Reticulum.Interface.UDP
+  }
 
   @max_interface_name_length 64
 
   @typedoc "Mapped bootstrap interface startup specification"
   @type interface_spec :: %{
           name: atom(),
-          type: :udp,
+          module: module(),
           opts: keyword()
         }
 
@@ -174,10 +203,10 @@ defmodule Reticulum.Bootstrap.Config do
     with {:ok, interface_name} <- validate_interface_name(name),
          :ok <- validate_interface_option_keys(interface_config, interface_name),
          {:ok, enabled?} <- validate_enabled(Map.get(interface_config, "enabled", true)),
-         {:ok, type} <- map_interface_type(Map.get(interface_config, "type"), interface_name),
+         {:ok, module} <- map_interface_module(interface_config, interface_name),
          {:ok, opts} <- map_interface_opts(interface_config, interface_name) do
       if enabled? do
-        {:ok, %{name: interface_name, type: type, opts: opts}}
+        {:ok, %{name: interface_name, module: module, opts: opts}}
       else
         {:ok, :disabled}
       end
@@ -226,14 +255,36 @@ defmodule Reticulum.Bootstrap.Config do
   defp validate_enabled(value) when is_boolean(value), do: {:ok, value}
   defp validate_enabled(_value), do: {:error, :invalid_interface_enabled}
 
-  defp map_interface_type(type, interface_name) when is_binary(type) do
-    case String.downcase(type) do
-      "udp" -> {:ok, :udp}
-      _ -> {:error, {:unsupported_interface_type, interface_name, type}}
+  defp map_interface_module(interface_config, interface_name) do
+    module = Map.get(interface_config, "module")
+    type = Map.get(interface_config, "type")
+
+    cond do
+      is_binary(module) and module != "" -> parse_module(module, interface_name)
+      is_binary(type) -> map_interface_type(type, interface_name)
+      true -> {:error, :invalid_interface_type}
     end
   end
 
-  defp map_interface_type(_type, _interface_name), do: {:error, :invalid_interface_type}
+  defp map_interface_type(type, interface_name) when is_binary(type) do
+    case Map.fetch(@built_in_adapters, String.downcase(type)) do
+      {:ok, module} -> {:ok, module}
+      :error -> {:error, {:unsupported_interface_type, interface_name, type}}
+    end
+  end
+
+  defp parse_module(module_name, interface_name) do
+    module_name
+    |> normalize_module_name()
+    |> safe_to_existing_atom()
+    |> case do
+      {:ok, module} -> {:ok, module}
+      :error -> {:error, {:invalid_interface_module, interface_name, module_name}}
+    end
+  end
+
+  defp normalize_module_name("Elixir." <> _rest = module_name), do: module_name
+  defp normalize_module_name(module_name), do: "Elixir." <> module_name
 
   defp map_interface_opts(interface_config, interface_name) do
     with {:ok, listen_ip} <- maybe_parse_ip(interface_config, "listen_ip", :invalid_listen_ip),
@@ -253,7 +304,35 @@ defmodule Reticulum.Bootstrap.Config do
          {:ok, ifac_netkey} <-
            maybe_parse_string(interface_config, "ifac_netkey", :invalid_ifac_netkey),
          {:ok, ifac_size} <-
-           maybe_parse_ifac_size_bits(interface_config, "ifac_size_bits", :invalid_ifac_size_bits) do
+           maybe_parse_ifac_size_bits(interface_config, "ifac_size_bits", :invalid_ifac_size_bits),
+         {:ok, queue_limit} <-
+           maybe_parse_positive_integer(interface_config, "queue_limit", :invalid_queue_limit),
+         {:ok, backpressure} <-
+           maybe_parse_backpressure(interface_config, "backpressure", :invalid_backpressure),
+         {:ok, rate_limit_bytes_per_second} <-
+           maybe_parse_positive_integer(
+             interface_config,
+             "rate_limit_bytes_per_second",
+             :invalid_rate_limit_bytes_per_second
+           ),
+         {:ok, rate_limit_packets_per_second} <-
+           maybe_parse_positive_integer(
+             interface_config,
+             "rate_limit_packets_per_second",
+             :invalid_rate_limit_packets_per_second
+           ),
+         {:ok, rate_limit_burst_bytes} <-
+           maybe_parse_positive_integer(
+             interface_config,
+             "rate_limit_burst_bytes",
+             :invalid_rate_limit_burst_bytes
+           ),
+         {:ok, rate_limit_burst_packets} <-
+           maybe_parse_positive_integer(
+             interface_config,
+             "rate_limit_burst_packets",
+             :invalid_rate_limit_burst_packets
+           ) do
       {:ok,
        []
        |> maybe_put(:listen_ip, listen_ip)
@@ -262,7 +341,13 @@ defmodule Reticulum.Bootstrap.Config do
        |> maybe_put(:default_peer_port, peer_port)
        |> maybe_put(:ifac_netname, ifac_netname)
        |> maybe_put(:ifac_netkey, ifac_netkey)
-       |> maybe_put(:ifac_size, ifac_size)}
+       |> maybe_put(:ifac_size, ifac_size)
+       |> maybe_put(:queue_limit, queue_limit)
+       |> maybe_put(:backpressure, backpressure)
+       |> maybe_put(:rate_limit_bytes_per_second, rate_limit_bytes_per_second)
+       |> maybe_put(:rate_limit_packets_per_second, rate_limit_packets_per_second)
+       |> maybe_put(:rate_limit_burst_bytes, rate_limit_burst_bytes)
+       |> maybe_put(:rate_limit_burst_packets, rate_limit_burst_packets)}
     else
       {:error, reason} ->
         {:error, {:invalid_interface_config, interface_name, reason}}
@@ -343,6 +428,32 @@ defmodule Reticulum.Bootstrap.Config do
       {:ok, value}
       when is_integer(value) and value >= 8 and value <= 512 and rem(value, 8) == 0 ->
         {:ok, div(value, 8)}
+
+      {:ok, _value} ->
+        {:error, error}
+    end
+  end
+
+  defp maybe_parse_positive_integer(interface_config, key, error) do
+    case Map.fetch(interface_config, key) do
+      :error ->
+        {:ok, :not_set}
+
+      {:ok, value} when is_integer(value) and value > 0 ->
+        {:ok, value}
+
+      {:ok, _value} ->
+        {:error, error}
+    end
+  end
+
+  defp maybe_parse_backpressure(interface_config, key, error) do
+    case Map.fetch(interface_config, key) do
+      :error ->
+        {:ok, :not_set}
+
+      {:ok, value} when value in ["reject", "drop_newest", "drop_oldest"] ->
+        {:ok, String.to_existing_atom(value)}
 
       {:ok, _value} ->
         {:error, error}

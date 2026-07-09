@@ -26,6 +26,12 @@ defmodule Reticulum.Bootstrap.ConfigTest do
           "path_request_min_interval_seconds" => 9,
           "path_request_duplicate_ttl_seconds" => 11,
           "path_request_fanout" => 4,
+          "interface_queue_limit" => 8,
+          "interface_backpressure" => "drop_oldest",
+          "interface_rate_limit_bytes_per_second" => 2048,
+          "interface_rate_limit_packets_per_second" => 16,
+          "interface_rate_limit_burst_bytes" => 4096,
+          "interface_rate_limit_burst_packets" => 32,
           "receipt_timeout_seconds" => 8,
           "receipt_retention_seconds" => 20,
           "ratchet_expiry_seconds" => 900
@@ -39,7 +45,10 @@ defmodule Reticulum.Bootstrap.ConfigTest do
             "default_peer_port" => 42_425,
             "ifac_netname" => "mesh-alpha",
             "ifac_netkey" => "phase7-secret",
-            "ifac_size_bits" => 128
+            "ifac_size_bits" => 128,
+            "queue_limit" => 2,
+            "backpressure" => "drop_newest",
+            "rate_limit_packets_per_second" => 8
           },
           "disabled" => %{
             "enabled" => false,
@@ -68,11 +77,17 @@ defmodule Reticulum.Bootstrap.ConfigTest do
       assert bootstrap.node_opts[:path_request_min_interval_seconds] == 9
       assert bootstrap.node_opts[:path_request_duplicate_ttl_seconds] == 11
       assert bootstrap.node_opts[:path_request_fanout] == 4
+      assert bootstrap.node_opts[:interface_queue_limit] == 8
+      assert bootstrap.node_opts[:interface_backpressure] == :drop_oldest
+      assert bootstrap.node_opts[:interface_rate_limit_bytes_per_second] == 2048
+      assert bootstrap.node_opts[:interface_rate_limit_packets_per_second] == 16
+      assert bootstrap.node_opts[:interface_rate_limit_burst_bytes] == 4096
+      assert bootstrap.node_opts[:interface_rate_limit_burst_packets] == 32
       assert bootstrap.node_opts[:receipt_timeout_seconds] == 8
       assert bootstrap.node_opts[:receipt_retention_seconds] == 20
       assert bootstrap.node_opts[:ratchet_expiry_seconds] == 900
 
-      assert [%{name: :link, type: :udp, opts: opts}] = bootstrap.interfaces
+      assert [%{name: :link, module: Reticulum.Interface.UDP, opts: opts}] = bootstrap.interfaces
       assert opts[:listen_ip] == {127, 0, 0, 1}
       assert opts[:listen_port] == 42_424
       assert opts[:default_peer_ip] == {127, 0, 0, 1}
@@ -80,6 +95,9 @@ defmodule Reticulum.Bootstrap.ConfigTest do
       assert opts[:ifac_netname] == "mesh-alpha"
       assert opts[:ifac_netkey] == "phase7-secret"
       assert opts[:ifac_size] == 16
+      assert opts[:queue_limit] == 2
+      assert opts[:backpressure] == :drop_newest
+      assert opts[:rate_limit_packets_per_second] == 8
     end
 
     test "rejects unknown top-level section" do
@@ -104,6 +122,17 @@ defmodule Reticulum.Bootstrap.ConfigTest do
     test "rejects invalid IFAC size bits" do
       assert Config.new(%{"interfaces" => %{"link" => %{"type" => "udp", "ifac_size_bits" => 7}}}) ==
                {:error, {:invalid_interface_config, :link, :invalid_ifac_size_bits}}
+    end
+
+    test "maps custom interface modules by module name" do
+      assert {:ok, bootstrap} =
+               Config.new(%{
+                 "interfaces" => %{
+                   "link" => %{"module" => "Reticulum.TestSupport.TestInterface"}
+                 }
+               })
+
+      assert [%{name: :link, module: Reticulum.TestSupport.TestInterface}] = bootstrap.interfaces
     end
 
     test "rejects invalid interface name" do

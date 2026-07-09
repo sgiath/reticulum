@@ -2,6 +2,7 @@ defmodule Reticulum.Transport.Routing do
   @moduledoc false
 
   @type path_candidate :: %{
+          health_score: non_neg_integer(),
           hops: non_neg_integer(),
           interface: atom() | nil,
           updated_at: integer()
@@ -11,10 +12,10 @@ defmodule Reticulum.Transport.Routing do
 
   def prefer_candidate?(candidate, current, opts)
       when is_map(candidate) and is_map(current) and is_list(opts) do
-    candidate_healthy = Keyword.get(opts, :candidate_healthy, true)
-    current_healthy = Keyword.get(opts, :current_healthy, true)
+    candidate_health_score = Keyword.get(opts, :candidate_health_score, 100)
+    current_health_score = Keyword.get(opts, :current_health_score, 100)
 
-    case compare_health(candidate_healthy, current_healthy) do
+    case compare_health(candidate_health_score, current_health_score) do
       :prefer_candidate ->
         true
 
@@ -28,8 +29,9 @@ defmodule Reticulum.Transport.Routing do
 
   def prefer_candidate?(_candidate, _current, _opts), do: false
 
-  def valid_candidate?(%{hops: hops, updated_at: updated_at})
-      when is_integer(hops) and hops >= 0 and is_integer(updated_at),
+  def valid_candidate?(%{hops: hops, updated_at: updated_at, health_score: health_score})
+      when is_integer(hops) and hops >= 0 and is_integer(updated_at) and is_integer(health_score) and
+             health_score >= 0,
       do: true
 
   def valid_candidate?(_candidate), do: false
@@ -55,9 +57,15 @@ defmodule Reticulum.Transport.Routing do
     end
   end
 
-  defp compare_health(true, false), do: :prefer_candidate
-  defp compare_health(false, true), do: :prefer_current
-  defp compare_health(_candidate_healthy, _current_healthy), do: :tie
+  defp compare_health(candidate_health_score, current_health_score)
+       when candidate_health_score > current_health_score,
+       do: :prefer_candidate
+
+  defp compare_health(candidate_health_score, current_health_score)
+       when candidate_health_score < current_health_score,
+       do: :prefer_current
+
+  defp compare_health(_candidate_health_score, _current_health_score), do: :tie
 
   defp compare_hops(candidate_hops, current_hops) when candidate_hops < current_hops,
     do: :prefer_candidate

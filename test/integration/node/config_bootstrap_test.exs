@@ -33,6 +33,9 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       path_request_min_interval_seconds = 9
       path_request_duplicate_ttl_seconds = 11
       path_request_fanout = 4
+      interface_queue_limit = 8
+      interface_backpressure = "drop_oldest"
+      interface_rate_limit_bytes_per_second = 2048
       receipt_timeout_seconds = 8
       receipt_retention_seconds = 20
       ratchet_expiry_seconds = 900
@@ -44,6 +47,8 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
       ifac_netname = "mesh-alpha"
       ifac_netkey = "phase7-secret"
       ifac_size_bits = 128
+      queue_limit = 2
+      backpressure = "drop_newest"
       """)
 
     assert {:ok, pid} = Node.start_from_config(config_path, name: node_name)
@@ -66,6 +71,9 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert config.path_request_min_interval_seconds == 9
     assert config.path_request_duplicate_ttl_seconds == 11
     assert config.path_request_fanout == 4
+    assert config.interface_queue_limit == 8
+    assert config.interface_backpressure == :drop_oldest
+    assert config.interface_rate_limit_bytes_per_second == 2048
     assert config.receipt_timeout_seconds == 8
     assert config.receipt_retention_seconds == 20
     assert config.ratchet_expiry_seconds == 900
@@ -78,6 +86,8 @@ defmodule Reticulum.Node.ConfigBootstrapTest do
     assert interface.meta.ifac == :auth
     assert interface.meta.ifac_size == 16
     assert interface.meta.ifac_netname == "mesh-alpha"
+    assert interface.meta.queue_limit == 2
+    assert interface.meta.backpressure == :drop_newest
     refute Map.has_key?(interface.meta, :ifac_netkey)
   end
 
