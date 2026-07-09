@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "Reticulum": {
+      "repository": "markqvist/Reticulum",
+      "description": "reference for Reticulim protocol implementation. This library is the source of truth for correct protocol behavior",
+    },
+    "lxmf": {
+      "repository": "markqvist/lxmf",
+      "description": "reference for LXMF protocol implementation. This library is the source of truth for correct protocol behavior",
+    },
+    "reticulum_ex": {
+      "repository": "https://codeberg.org/int32/reticulum_ex",
+      "description": "reference of different Elixir reticulum library. This is not state of the art or reference but can contain useful patterns we can draw inspiration from and inform our decisions",
+    },
+  },
+}
