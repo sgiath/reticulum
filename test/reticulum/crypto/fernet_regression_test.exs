@@ -41,7 +41,7 @@ defmodule Reticulum.FernetRegressionTest do
       cipher_text = Fernet.encrypt(fernet, plain_text)
 
       prefix_size = byte_size(cipher_text) - 1
-      <<prefix::binary-size(prefix_size), last::integer-size(8)>> = cipher_text
+      <<prefix::binary-size(^prefix_size), last::integer-size(8)>> = cipher_text
       tampered = prefix <> <<bxor(last, 0x01)>>
 
       refute Fernet.sig_valid?(fernet, tampered)

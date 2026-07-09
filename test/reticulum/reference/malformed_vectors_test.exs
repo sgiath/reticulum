@@ -179,7 +179,7 @@ defmodule Reticulum.Reference.MalformedVectorsTest do
 
   defp tamper_last_byte(binary) when byte_size(binary) > 0 do
     prefix_size = byte_size(binary) - 1
-    <<prefix::binary-size(prefix_size), last::integer-size(8)>> = binary
+    <<prefix::binary-size(^prefix_size), last::integer-size(8)>> = binary
     prefix <> <<Bitwise.bxor(last, 0x01)>>
   end
 

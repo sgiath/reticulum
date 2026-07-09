@@ -80,11 +80,11 @@ defmodule Reticulum.Messaging do
 
   defp resolve_interface(node_name, destination_hash, opts) do
     case Keyword.get(opts, :interface) do
-      interface when is_atom(interface) ->
-        {:ok, interface}
-
       nil ->
         resolve_path_or_single_interface(node_name, destination_hash)
+
+      interface when is_atom(interface) ->
+        {:ok, interface}
 
       _other ->
         {:error, :invalid_interface}

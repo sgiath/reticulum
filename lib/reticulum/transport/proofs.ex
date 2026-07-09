@@ -123,9 +123,6 @@ defmodule Reticulum.Transport.Proofs do
     end
   end
 
-  defp validate_destination_binding(_mode, _destination_hash, _proved_packet_hash),
-    do: {:error, :invalid_proof_mode}
-
   defp validate_mode(mode) when mode in [:explicit, :implicit], do: :ok
   defp validate_mode(_mode), do: {:error, :invalid_proof_mode}
 

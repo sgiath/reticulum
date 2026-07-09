@@ -127,11 +127,11 @@ defmodule Reticulum.Interface.IFAC do
   defp unwrap_inbound(raw, %{identity: identity, key: key, size: size}) do
     with true <- auth_flag_set?(raw) or {:error, :missing_ifac_auth},
          true <- byte_size(raw) > 2 + size or {:error, :ifac_frame_too_short},
-         <<_header::8, _hops::8, ifac::binary-size(size), _rest::binary>> <- raw do
+         <<_header::8, _hops::8, ifac::binary-size(^size), _rest::binary>> <- raw do
       mask = Crypto.hkdf(ifac, key, <<>>, byte_size(raw))
       unmasked = apply_mask(raw, mask, size, :inbound)
 
-      <<header::8, hops::8, _ifac::binary-size(size), rest::binary>> = unmasked
+      <<header::8, hops::8, _ifac::binary-size(^size), rest::binary>> = unmasked
       payload = <<band(header, 0x7F), hops, rest::binary>>
       signature = Identity.sign(identity, payload)
       expected_ifac = binary_part(signature, byte_size(signature) - size, size)
@@ -143,7 +143,6 @@ defmodule Reticulum.Interface.IFAC do
       end
     else
       {:error, _reason} = error -> error
-      false -> {:error, :invalid_ifac_frame}
       _ -> {:error, :invalid_ifac_frame}
     end
   end

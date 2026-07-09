@@ -42,7 +42,7 @@ defmodule Reticulum.Crypto do
   defp hkdf_extract(salt, ikm), do: hmac(salt, ikm)
 
   defp hkdf_expand(prk, info, len) do
-    {<<okm::binary-size(len), _rest::binary>>, _t} =
+    {<<okm::binary-size(^len), _rest::binary>>, _t} =
       Enum.reduce(1..ceil(len / @hash_len), {<<>>, <<>>}, fn i, {okm, t} ->
         t = hmac(prk, t <> info <> <<i>>)
         {okm <> t, t}

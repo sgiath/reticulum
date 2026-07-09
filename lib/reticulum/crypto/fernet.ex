@@ -43,7 +43,7 @@ defmodule Reticulum.Crypto.Fernet do
   def sig_valid?(%__MODULE__{sig_key: sig_key}, token)
       when is_binary(token) and byte_size(token) > 32 do
     signed_size = byte_size(token) - 32
-    <<signed::binary-size(signed_size), received_sig::binary-size(32)>> = token
+    <<signed::binary-size(^signed_size), received_sig::binary-size(32)>> = token
     expected_sig = Crypto.hmac(sig_key, signed)
 
     :crypto.hash_equals(received_sig, expected_sig)
@@ -75,7 +75,7 @@ defmodule Reticulum.Crypto.Fernet do
   def decrypt(%__MODULE__{enc_key: key, cipher: cipher} = context, token) when is_binary(token) do
     if sig_valid?(context, token) do
       signed_size = byte_size(token) - 32
-      <<signed::binary-size(signed_size), _signature::binary-size(32)>> = token
+      <<signed::binary-size(^signed_size), _signature::binary-size(32)>> = token
       <<iv::binary-size(16), cipher_text::binary>> = signed
 
       {:ok,
