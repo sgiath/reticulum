@@ -2,27 +2,12 @@ defmodule Reticulum.Interface.Runtime do
   @moduledoc false
   use GenServer
 
-  alias Reticulum.Interface
   alias Reticulum.Interface.Health
+  alias Reticulum.Interface.Options
   alias Reticulum.Interface.RateLimiter
+  alias Reticulum.Interface.Stats
   alias Reticulum.Node.State
   alias Reticulum.Observability
-
-  @type stats :: %{
-          tx_frames: non_neg_integer(),
-          tx_bytes: non_neg_integer(),
-          rx_frames: non_neg_integer(),
-          rx_bytes: non_neg_integer(),
-          dropped_frames: non_neg_integer(),
-          dropped_bytes: non_neg_integer(),
-          send_errors: non_neg_integer(),
-          consecutive_send_errors: non_neg_integer(),
-          throttled_count: non_neg_integer(),
-          last_tx_at: integer() | nil,
-          last_rx_at: integer() | nil,
-          last_send_error_at: integer() | nil,
-          last_throttle_at: integer() | nil
-        }
 
   @type state :: %{
           adapter: module(),
@@ -32,12 +17,12 @@ defmodule Reticulum.Interface.Runtime do
           meta: map(),
           name: atom(),
           node_name: atom(),
-          queue: :queue.queue({GenServer.from(), binary(), keyword()}),
+          queue: :queue.queue({binary(), keyword()}),
           queue_depth: non_neg_integer(),
           queue_limit: pos_integer(),
           rate_limiter: RateLimiter.t(),
           state_server: GenServer.server(),
-          stats: stats()
+          stats: Stats.t()
         }
 
   def child_spec(opts) do
@@ -55,8 +40,17 @@ defmodule Reticulum.Interface.Runtime do
 
   def start_link(opts) when is_list(opts), do: GenServer.start_link(__MODULE__, opts)
 
+  @doc """
+  Enqueues `payload` for transmission on the managed interface.
+
+  Replies as soon as the frame is accepted into the outbound queue (or dropped
+  by the configured backpressure strategy) so callers are never blocked on the
+  rate limiter or the adapter. Returns `{:error, :interface_backpressure}` only
+  for the `:reject` strategy on a full queue; delivery failures after
+  acceptance surface through telemetry, stats, and health scoring.
+  """
   def send_frame(server, payload, opts \\ []) when is_list(opts) do
-    GenServer.call(server, {:send_frame, IO.iodata_to_binary(payload), opts}, :infinity)
+    GenServer.call(server, {:send_frame, IO.iodata_to_binary(payload), opts})
   end
 
   def prepare_outbound(server, payload, opts \\ []) when is_binary(payload) and is_list(opts) do
@@ -69,37 +63,36 @@ defmodule Reticulum.Interface.Runtime do
 
   @impl true
   def init(opts) do
-    with {:ok, adapter} <- validate_adapter(Keyword.get(opts, :adapter)),
-         {:ok, name} <- validate_name(Keyword.get(opts, :name)),
-         {:ok, node_name} <- validate_node_name(Keyword.get(opts, :node_name)),
-         {:ok, state_server} <- validate_state_server(Keyword.get(opts, :state_server)),
-         {:ok, queue_limit} <- validate_queue_limit(Keyword.get(opts, :queue_limit, 64)),
-         {:ok, backpressure} <- validate_backpressure(Keyword.get(opts, :backpressure, :reject)),
-         :ok <- validate_rate_limit_opts(opts),
-         {:ok, adapter_state, adapter_meta} <- adapter.init(opts) do
+    with {:ok, validated} <- Options.validate(opts),
+         {:ok, adapter_state, adapter_meta} <- validated.adapter.init(opts) do
       state = %{
-        adapter: adapter,
+        adapter: validated.adapter,
         adapter_state: adapter_state,
-        backpressure: backpressure,
+        backpressure: validated.backpressure,
         drain_timer: nil,
-        meta: build_meta(adapter_meta, queue_limit, backpressure, opts),
-        name: name,
-        node_name: node_name,
+        meta: build_meta(adapter_meta, validated.queue_limit, validated.backpressure, opts),
+        name: validated.name,
+        node_name: validated.node_name,
         queue: :queue.new(),
         queue_depth: 0,
-        queue_limit: queue_limit,
+        queue_limit: validated.queue_limit,
         rate_limiter: RateLimiter.new(opts),
-        state_server: state_server,
-        stats: initial_stats()
+        state_server: validated.state_server,
+        stats: Stats.new()
       }
 
-      case State.register_interface(state_server, name, self(), adapter, state.meta) do
+      case State.register_interface(
+             state.state_server,
+             state.name,
+             self(),
+             state.adapter,
+             state.meta
+           ) do
         :ok ->
-          state = sync_interface_record(state, nil)
-          {:ok, state}
+          {:ok, sync_interface_record(state, nil)}
 
         {:error, reason} ->
-          terminate_adapter(adapter, reason, adapter_state)
+          terminate_adapter(state.adapter, reason, adapter_state)
           {:stop, reason}
       end
     else
@@ -108,10 +101,11 @@ defmodule Reticulum.Interface.Runtime do
   end
 
   @impl true
-  def handle_call({:send_frame, payload, opts}, from, state) do
-    case enqueue_frame(state, from, payload, opts) do
-      {:reply, reply, state} -> {:reply, reply, state}
-      {:drain, state} -> {:noreply, drain_queue(state)}
+  def handle_call({:send_frame, payload, opts}, _from, state) do
+    case enqueue_frame(state, payload, opts) do
+      {:enqueued, state} -> {:reply, :ok, state, {:continue, :drain_queue}}
+      {:rejected, state} -> {:reply, {:error, :interface_backpressure}, state}
+      {:dropped, state} -> {:reply, :ok, state}
     end
   end
 
@@ -133,6 +127,11 @@ defmodule Reticulum.Interface.Runtime do
       {:error, reason, adapter_state} ->
         {:reply, {:error, reason}, %{state | adapter_state: adapter_state}}
     end
+  end
+
+  @impl true
+  def handle_continue(:drain_queue, state) do
+    {:noreply, drain_queue(state)}
   end
 
   @impl true
@@ -171,12 +170,12 @@ defmodule Reticulum.Interface.Runtime do
     :ok
   end
 
-  defp enqueue_frame(state, from, payload, opts) when state.queue_depth < state.queue_limit do
+  defp enqueue_frame(state, payload, opts) when state.queue_depth < state.queue_limit do
     previous_health = interface_health(state)
 
     state = %{
       state
-      | queue: :queue.in({from, payload, opts}, state.queue),
+      | queue: :queue.in({payload, opts}, state.queue),
         queue_depth: state.queue_depth + 1
     }
 
@@ -185,28 +184,25 @@ defmodule Reticulum.Interface.Runtime do
       |> emit_queue_event()
       |> sync_interface_record(previous_health)
 
-    {:drain, state}
+    {:enqueued, state}
   end
 
-  defp enqueue_frame(%{backpressure: :reject} = state, _from, payload, _opts) do
-    state = record_drop(state, payload, :reject)
-    {:reply, {:error, :interface_backpressure}, state}
+  defp enqueue_frame(%{backpressure: :reject} = state, payload, _opts) do
+    {:rejected, record_drop(state, payload, :reject)}
   end
 
-  defp enqueue_frame(%{backpressure: :drop_newest} = state, _from, payload, _opts) do
-    state = record_drop(state, payload, :drop_newest)
-    {:reply, {:error, :interface_backpressure}, state}
+  defp enqueue_frame(%{backpressure: :drop_newest} = state, payload, _opts) do
+    {:dropped, record_drop(state, payload, :drop_newest)}
   end
 
-  defp enqueue_frame(%{backpressure: :drop_oldest} = state, from, payload, opts) do
-    {{:value, {dropped_from, dropped_payload, _dropped_opts}}, queue} = :queue.out(state.queue)
-    GenServer.reply(dropped_from, {:error, :interface_backpressure})
+  defp enqueue_frame(%{backpressure: :drop_oldest} = state, payload, opts) do
+    {{:value, {dropped_payload, _dropped_opts}}, queue} = :queue.out(state.queue)
 
     state =
       %{state | queue: queue, queue_depth: max(state.queue_depth - 1, 0)}
       |> record_drop(dropped_payload, :drop_oldest)
 
-    enqueue_frame(state, from, payload, opts)
+    enqueue_frame(state, payload, opts)
   end
 
   defp drain_queue(state) do
@@ -214,12 +210,12 @@ defmodule Reticulum.Interface.Runtime do
       {:empty, _queue} ->
         sync_interface_record(state)
 
-      {{:value, {from, payload, opts}}, queue} ->
+      {{:value, {payload, opts}}, queue} ->
         packet_size = byte_size(payload)
 
         case RateLimiter.allow?(state.rate_limiter, packet_size) do
           {:allow, rate_limiter} ->
-            send_queued_frame(state, from, payload, opts, queue, rate_limiter)
+            send_queued_frame(state, payload, opts, queue, rate_limiter)
 
           {:delay, wait_ms, rate_limiter} ->
             state
@@ -232,7 +228,7 @@ defmodule Reticulum.Interface.Runtime do
     end
   end
 
-  defp send_queued_frame(state, from, payload, opts, queue, rate_limiter) do
+  defp send_queued_frame(state, payload, opts, queue, rate_limiter) do
     previous_health = interface_health(state)
 
     state = %{
@@ -244,8 +240,6 @@ defmodule Reticulum.Interface.Runtime do
 
     case state.adapter.send_frame(payload, opts, state.adapter_state) do
       {:ok, adapter_state, endpoint} ->
-        GenServer.reply(from, :ok)
-
         state
         |> Map.put(:adapter_state, adapter_state)
         |> publish_outbound(payload, endpoint)
@@ -255,8 +249,6 @@ defmodule Reticulum.Interface.Runtime do
         |> drain_queue()
 
       {:error, reason, adapter_state} ->
-        GenServer.reply(from, {:error, reason})
-
         state
         |> Map.put(:adapter_state, adapter_state)
         |> record_send_error(reason)
@@ -286,7 +278,14 @@ defmodule Reticulum.Interface.Runtime do
 
         record_receive(acc, byte_size(payload))
 
-      _action, acc ->
+      action, acc ->
+        Observability.emit(
+          [:interface, :adapter, :unknown_action],
+          %{count: 1},
+          %{node: acc.node_name, interface: acc.name, module: acc.adapter, action: action},
+          log_level: :warning
+        )
+
         acc
     end)
   end
@@ -305,32 +304,11 @@ defmodule Reticulum.Interface.Runtime do
   end
 
   defp record_receive(state, payload_size) do
-    now = System.system_time(:millisecond)
-
-    %{
-      state
-      | stats: %{
-          state.stats
-          | rx_frames: state.stats.rx_frames + 1,
-            rx_bytes: state.stats.rx_bytes + payload_size,
-            last_rx_at: now
-        }
-    }
+    %{state | stats: Stats.record_receive(state.stats, payload_size)}
   end
 
   defp record_send_success(state, payload_size) do
-    now = System.system_time(:millisecond)
-
-    %{
-      state
-      | stats: %{
-          state.stats
-          | tx_frames: state.stats.tx_frames + 1,
-            tx_bytes: state.stats.tx_bytes + payload_size,
-            last_tx_at: now,
-            consecutive_send_errors: 0
-        }
-    }
+    %{state | stats: Stats.record_send_success(state.stats, payload_size)}
   end
 
   defp record_send_error(state, reason) do
@@ -341,15 +319,7 @@ defmodule Reticulum.Interface.Runtime do
       log_level: :debug
     )
 
-    %{
-      state
-      | stats: %{
-          state.stats
-          | send_errors: state.stats.send_errors + 1,
-            consecutive_send_errors: state.stats.consecutive_send_errors + 1,
-            last_send_error_at: System.system_time(:millisecond)
-        }
-    }
+    %{state | stats: Stats.record_send_error(state.stats)}
   end
 
   defp record_throttle(state, wait_ms) do
@@ -360,14 +330,7 @@ defmodule Reticulum.Interface.Runtime do
       log_level: :debug
     )
 
-    %{
-      state
-      | stats: %{
-          state.stats
-          | throttled_count: state.stats.throttled_count + 1,
-            last_throttle_at: System.monotonic_time(:millisecond)
-        }
-    }
+    %{state | stats: Stats.record_throttle(state.stats)}
   end
 
   defp record_drop(state, payload, strategy) do
@@ -380,16 +343,7 @@ defmodule Reticulum.Interface.Runtime do
       log_level: :debug
     )
 
-    state = %{
-      state
-      | stats: %{
-          state.stats
-          | dropped_frames: state.stats.dropped_frames + 1,
-            dropped_bytes: state.stats.dropped_bytes + payload_size
-        }
-    }
-
-    sync_interface_record(state)
+    sync_interface_record(%{state | stats: Stats.record_drop(state.stats, payload_size)})
   end
 
   defp emit_queue_event(state) do
@@ -421,7 +375,6 @@ defmodule Reticulum.Interface.Runtime do
     adapter_health = state.adapter.health(state.adapter_state)
 
     Health.score(%{
-      available: Process.alive?(self()),
       adapter_status: Map.get(adapter_health, :adapter_status, :up),
       queue_depth: state.queue_depth,
       queue_limit: state.queue_limit,
@@ -467,24 +420,6 @@ defmodule Reticulum.Interface.Runtime do
     build_meta(%{}, queue_limit, backpressure, opts)
   end
 
-  defp initial_stats do
-    %{
-      tx_frames: 0,
-      tx_bytes: 0,
-      rx_frames: 0,
-      rx_bytes: 0,
-      dropped_frames: 0,
-      dropped_bytes: 0,
-      send_errors: 0,
-      consecutive_send_errors: 0,
-      throttled_count: 0,
-      last_tx_at: nil,
-      last_rx_at: nil,
-      last_send_error_at: nil,
-      last_throttle_at: nil
-    }
-  end
-
   defp terminate_adapter(adapter, reason, adapter_state) do
     if function_exported?(adapter, :terminate, 2) do
       _ = adapter.terminate(reason, adapter_state)
@@ -492,60 +427,4 @@ defmodule Reticulum.Interface.Runtime do
 
     :ok
   end
-
-  defp validate_adapter(adapter) do
-    if Interface.adapter?(adapter), do: {:ok, adapter}, else: {:error, :invalid_interface_adapter}
-  end
-
-  defp validate_name(name) when is_atom(name), do: {:ok, name}
-  defp validate_name(_name), do: {:error, :invalid_interface_name}
-
-  defp validate_node_name(node_name) when is_atom(node_name), do: {:ok, node_name}
-  defp validate_node_name(_node_name), do: {:error, :invalid_node_name}
-
-  defp validate_state_server(state_server) do
-    if is_pid(state_server) or is_tuple(state_server) do
-      {:ok, state_server}
-    else
-      {:error, :invalid_state_server}
-    end
-  end
-
-  defp validate_queue_limit(limit) when is_integer(limit) and limit > 0, do: {:ok, limit}
-  defp validate_queue_limit(_limit), do: {:error, :invalid_interface_queue_limit}
-
-  defp validate_backpressure(mode) when mode in [:reject, :drop_newest, :drop_oldest],
-    do: {:ok, mode}
-
-  defp validate_backpressure(_mode), do: {:error, :invalid_interface_backpressure}
-
-  defp validate_rate_limit_opts(opts) do
-    with :ok <-
-           validate_optional_positive_integer(
-             Keyword.get(opts, :rate_limit_bytes_per_second),
-             :invalid_interface_rate_limit_bytes_per_second
-           ),
-         :ok <-
-           validate_optional_positive_integer(
-             Keyword.get(opts, :rate_limit_packets_per_second),
-             :invalid_interface_rate_limit_packets_per_second
-           ),
-         :ok <-
-           validate_optional_positive_integer(
-             Keyword.get(opts, :rate_limit_burst_bytes),
-             :invalid_interface_rate_limit_burst_bytes
-           ) do
-      validate_optional_positive_integer(
-        Keyword.get(opts, :rate_limit_burst_packets),
-        :invalid_interface_rate_limit_burst_packets
-      )
-    end
-  end
-
-  defp validate_optional_positive_integer(nil, _error), do: :ok
-
-  defp validate_optional_positive_integer(value, _error) when is_integer(value) and value > 0,
-    do: :ok
-
-  defp validate_optional_positive_integer(_value, error), do: {:error, error}
 end

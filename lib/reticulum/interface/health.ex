@@ -4,10 +4,9 @@ defmodule Reticulum.Interface.Health do
   @recent_throttle_window_ms 5_000
 
   def score(snapshot) when is_map(snapshot) do
-    available = Map.get(snapshot, :available, true)
     adapter_status = Map.get(snapshot, :adapter_status, :up)
 
-    if not available or adapter_status == :down do
+    if adapter_status == :down do
       %{
         score: 0,
         band: :unavailable,

@@ -93,7 +93,10 @@ The file format uses `[node]` and `[interfaces.<name>]` sections. See
 `[node]` also supports interface-runtime defaults.
 
 - `interface_queue_limit` bounds per-interface outbound queue depth.
-- `interface_backpressure = "reject" | "drop_newest" | "drop_oldest"` controls queue overflow behavior.
+- `interface_backpressure = "reject" | "drop_newest" | "drop_oldest"` controls queue overflow behavior:
+  `reject` refuses new frames with an error, `drop_newest` accepts and silently drops them,
+  `drop_oldest` evicts the oldest queued frame. Sends are accepted into the queue immediately,
+  so a throttled interface never blocks callers.
 - `interface_rate_limit_bytes_per_second` and `interface_rate_limit_packets_per_second` bound sustained egress.
 - `interface_rate_limit_burst_bytes` and `interface_rate_limit_burst_packets` control token-bucket burst capacity.
 
@@ -104,6 +107,7 @@ Health scoring considers adapter status, queue pressure, and recent throttling/s
 
 - `type = "udp"` uses a built-in adapter.
 - `module = "Reticulum.MyCustomInterface"` loads a custom adapter module instead of a built-in alias.
+  Custom adapters implement the `Reticulum.Interface` behaviour; see its module docs for the contract.
 - `queue_limit`, `backpressure`, and `rate_limit_*` override the node-level interface defaults for one interface.
 
 - `ifac_netname` and/or `ifac_netkey` derive the shared IFAC identity for that interface.

@@ -32,23 +32,15 @@ defmodule Reticulum.Interface.RuntimeTest do
 
     start_supervised!({Node, name: node_name, storage_path: unique_storage_path("backpressure")})
 
-    assert {:ok, _pid} =
-             Node.start_interface(node_name, TestInterface,
-               name: :custom,
-               test_pid: self(),
-               queue_limit: 1,
-               backpressure: :reject,
-               rate_limit_packets_per_second: 1,
-               rate_limit_burst_packets: 1
-             )
+    assert {:ok, _pid} = start_throttled_interface(node_name, backpressure: :reject)
 
     assert :ok = Node.send_frame(node_name, :custom, "first")
 
-    task = Task.async(fn -> Node.send_frame(node_name, :custom, "second") end)
-    Process.sleep(50)
+    # send_frame replies on enqueue: a throttled interface must not block callers
+    {elapsed_us, :ok} = :timer.tc(fn -> Node.send_frame(node_name, :custom, "second") end)
+    assert elapsed_us < 500_000
 
     assert {:error, :interface_backpressure} = Node.send_frame(node_name, :custom, "third")
-    assert :ok = Task.await(task, 2_000)
 
     assert_receive {:test_interface_sent, :custom, "first", _opts}, 200
     assert_receive {:test_interface_sent, :custom, "second", _opts}, 1_500
@@ -65,6 +57,61 @@ defmodule Reticulum.Interface.RuntimeTest do
              end)
 
     assert degraded.health.band == :degraded
+  end
+
+  test "drop_newest accepts and silently drops frames that overflow the queue" do
+    node_name = Reticulum.Node.ManagedInterfaceDropNewest
+
+    start_supervised!({Node, name: node_name, storage_path: unique_storage_path("drop-newest")})
+
+    assert {:ok, _pid} = start_throttled_interface(node_name, backpressure: :drop_newest)
+
+    assert :ok = Node.send_frame(node_name, :custom, "first")
+    assert :ok = Node.send_frame(node_name, :custom, "second")
+    assert :ok = Node.send_frame(node_name, :custom, "third")
+
+    assert_receive {:test_interface_sent, :custom, "first", _opts}, 200
+    assert_receive {:test_interface_sent, :custom, "second", _opts}, 1_500
+    refute_receive {:test_interface_sent, :custom, "third", _opts}, 200
+
+    assert {:ok, [interface]} = Node.interfaces(node_name)
+    assert interface.stats.dropped_frames == 1
+  end
+
+  test "drop_oldest evicts the oldest queued frame in favor of new ones" do
+    node_name = Reticulum.Node.ManagedInterfaceDropOldest
+
+    start_supervised!({Node, name: node_name, storage_path: unique_storage_path("drop-oldest")})
+
+    assert {:ok, _pid} = start_throttled_interface(node_name, backpressure: :drop_oldest)
+
+    assert :ok = Node.send_frame(node_name, :custom, "first")
+    assert :ok = Node.send_frame(node_name, :custom, "second")
+    assert :ok = Node.send_frame(node_name, :custom, "third")
+
+    assert_receive {:test_interface_sent, :custom, "first", _opts}, 200
+    assert_receive {:test_interface_sent, :custom, "third", _opts}, 1_500
+    refute_receive {:test_interface_sent, :custom, "second", _opts}, 200
+
+    assert {:ok, [interface]} = Node.interfaces(node_name)
+    assert interface.stats.dropped_frames == 1
+  end
+
+  defp start_throttled_interface(node_name, opts) do
+    Node.start_interface(
+      node_name,
+      TestInterface,
+      Keyword.merge(
+        [
+          name: :custom,
+          test_pid: self(),
+          queue_limit: 1,
+          rate_limit_packets_per_second: 1,
+          rate_limit_burst_packets: 1
+        ],
+        opts
+      )
+    )
   end
 
   defp wait_for_interface(node_name, interface_name, matcher, attempts \\ 40)
